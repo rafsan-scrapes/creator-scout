@@ -1,3 +1,7 @@
+> **Archived — retired workspace (pre-Scout).** This document describes the previous Research → Insights → Ideas → Script → Thumbnail workspace and does not describe the current Creator Scout product. Kept for reference only. See [`README.md`](../../README.md) and [`context/project-overview.md`](../../context/project-overview.md) for the current spec.
+
+---
+
 # YouTube Pro five-minute shot list
 
 ## Recording setup
