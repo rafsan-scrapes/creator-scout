@@ -1,6 +1,6 @@
 # Maintainer Handoff
 
-Read `README.md` first. It describes the current product, local-first access model, exact input limits, and verification commands.
+Read `README.md` first. It describes the current product, local-first access model, exact input limits, and verification commands. Next read `context/project-overview.md` and `context/progress-tracker.md` for future upgrades.
 
 ## Current product map
 
