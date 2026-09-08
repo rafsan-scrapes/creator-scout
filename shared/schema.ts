@@ -151,3 +151,59 @@ export const searchResponseSchema = z.object({
 });
 
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Scout (Phase 4) — single-purpose creator discovery
+// Reuses validation patterns from the old Research request where applicable.
+// ---------------------------------------------------------------------------
+
+export const SCOUT_KEYWORD_LIMIT = 25;
+
+export const scoutRequestSchema = z.object({
+  keywords: z.array(z.string().trim().min(1).max(200)).min(1).max(SCOUT_KEYWORD_LIMIT),
+  minSubscribers: z.number().int().min(0).max(1_000_000_000),
+  maxSubscribers: z.number().int().min(0).max(1_000_000_000),
+  maxDaysSinceUpload: z.number().int().min(1).max(3650),
+  minAvgViews: z.number().int().min(0).max(1_000_000_000),
+  minEngagementRate: z.number().min(0).max(100).optional(),
+  targetCount: z.number().int().min(1).max(500),
+}).strict().superRefine((data, ctx) => {
+  if (data.minSubscribers > data.maxSubscribers) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["minSubscribers"],
+      message: "minSubscribers must be <= maxSubscribers",
+    });
+  }
+});
+
+export type ScoutRequest = z.infer<typeof scoutRequestSchema>;
+
+export const scoutChannelSchema = z.object({
+  channel_id: z.string().min(1).max(128),
+  channel_name: z.string().min(1).max(500),
+  channel_url: z.string().url().max(2_048),
+  subscriber_count: z.number().int().min(0).nullable(),
+  avg_views: z.number().int().min(0).nullable(),
+  engagement_rate_pct: z.number().nullable(),
+  last_upload_date: z.string().nullable(),
+  days_since_last_upload: z.number().int().min(0).nullable(),
+  matched_keyword: z.string().min(1).max(200),
+  qualified: z.boolean(),
+  first_seen_at: z.string(),
+}).strict();
+
+export type ScoutChannel = z.infer<typeof scoutChannelSchema>;
+
+export const scoutStopReasonSchema = z.enum(["target_reached", "keywords_exhausted", "quota_exhausted"]);
+export type ScoutStopReason = z.infer<typeof scoutStopReasonSchema>;
+
+export const scoutResponseSchema = z.object({
+  channels: z.array(scoutChannelSchema),
+  stopReason: scoutStopReasonSchema,
+  found: z.number().int().min(0),
+  requested: z.number().int().min(1),
+  keywordsSearched: z.number().int().min(0),
+}).strict();
+
+export type ScoutResponse = z.infer<typeof scoutResponseSchema>;

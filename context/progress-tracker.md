@@ -179,16 +179,9 @@ where they still fit).
    input ranges (reuse whatever validation patterns
    `shared/schema.ts` already has for the old Research
    request).
-3. Decide and implement one clear behavior for how progress is
-   returned to the client — either (a) a single synchronous
-   response once the whole run finishes, or (b) a
-   streaming/polling mechanism if runs are expected to take
-   long enough that a bare spinner would be a bad experience.
-   Given target counts are likely small (e.g. 10–50 channels),
-   default to (a) unless you find evidence during
-   implementation that runs commonly take long enough to need
-   progress streaming — note whichever you pick and why in
-   Architecture Decisions.
+3. Implement how progress is
+   returned to the client by giving a single synchronous
+   response once the whole run finishes
 4. Response should include: the list of qualified channels
    found, how the run ended (`target_reached` /
    `keywords_exhausted` / `quota_exhausted`), and counts
