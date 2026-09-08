@@ -6,7 +6,23 @@
       "Bash(npm run *)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(node)"
+      "Bash(node)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('better-sqlite3:', p.dependencies['better-sqlite3']\\); console.log\\('@types/better-sqlite3:', p.devDependencies['@types/better-sqlite3']\\)\")",
+      "Bash(echo \"---EXIT:$?\")",
+      "Bash(npx tsx --eval ' *)",
+      "Bash(npx tsx *)",
+      "Bash(node -e \"try{require\\('better-sqlite3'\\)}catch\\(e\\){console.error\\(e.message\\); console.error\\(e.stack.split\\('\\\\n'\\).slice\\(0,12\\).join\\('\\\\n'\\)\\)}\")",
+      "PowerShell(node -e \"try { const D=require\\('better-sqlite3'\\); console.log\\('loaded', typeof D\\); const db=new D\\(':memory:'\\); console.log\\('db ok'\\); db.exec\\('CREATE TABLE t\\(x TEXT\\)'\\); console.log\\('exec ok'\\); db.close\\(\\); console.log\\('done'\\); } catch\\(e\\) { console.error\\('ERR', e.message\\); console.error\\(e.stack\\) }\")",
+      "PowerShell(node -p \"process.versions.modules\")",
+      "PowerShell(head -20)",
+      "PowerShell(head -30)",
+      "Bash(node -e \"const p=require\\('./node_modules/better-sqlite3/package.json'\\); console.log\\(JSON.stringify\\(p.engines\\)\\)\")",
+      "Bash(node --trace-warnings -e ' *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npm view *)",
+      "Bash(node -e \"const p=require\\('./node_modules/better-sqlite3/binding.gyp'\\); console.log\\(JSON.stringify\\(p,null,2\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('better-sqlite3', p.dependencies['better-sqlite3']\\); console.log\\('@types', p.devDependencies['@types/better-sqlite3']\\)\")",
+      "Bash(echo \"---server/shared check exit:$?\")"
     ]
   }
 }

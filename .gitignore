@@ -8,6 +8,7 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+data/
 
 # Local workspace and retired platform metadata
 .replit

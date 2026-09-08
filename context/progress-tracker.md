@@ -9,20 +9,21 @@ so the next session doesn't have to rediscover it.
 
 ## Current Phase
 
-- Phase 2 — Add the SQLite persistence layer
+- Phase 3 — Rework the YouTube service
 
 ## Current Goal
 
-- Phase 2 — Add the SQLite persistence layer (no UI/API wiring — just server/db.ts + helpers + manual test)
+- Phase 3 — Rework the YouTube service (multi-key rotation + discovery pipeline)
 
 ## Completed
 
 - Phase 0
 - Phase 1 — Strip the app down (2026-09-08)
+- Phase 2 — Add the SQLite persistence layer (2026-09-08)
 
 ## In Progress
 
-- None — Phase 2 ready to start
+— Phase 3 ready to start
 ## Next Up
 
 Work through these phases in order. Do not skip ahead — later
@@ -334,6 +335,7 @@ where they still fit).
   reuse this exact pattern for the multi-key list, don't
   invent a new secrets mechanism.
 - 2026-09-08 — Phase 1 check: node_modules was missing so npm install was run first (401 packages). npm run check (tsc --noEmit) now reports 65 errors across exactly 3 files — client/src/lib/pdfGenerator.ts (12 implicit-any on callbacks, pre-existing), client/src/lib/research-export.ts (18 implicit-any + 2 missing IdeaPackage/ResearchInsightsResponse from deleted shared/evidence-contracts.ts), client/src/pages/research.tsx (26 implicit-any + missing workflow-context + 3 missing evidence exports). Zero errors in server/ or shared/ — server/routes.ts, server/settings.ts, and shared/schema.ts are clean after the Gemini/evidence removal. No surprise load-bearing shared code. The dangling research-export.ts/pdfGenerator.ts exports are expected to be deleted/reworked with research.tsx in Phase 5. package-lock.json still contains @google/genai entries — will be pruned by the next npm install after lockfile update. .env.example was already Scout-aligned (no GEMINI_* vars), so no change needed there. server/youtube.ts, server/settings.ts, server/routes.ts preserved as required.
+- 2026-09-08 — Phase 2: added better-sqlite3@12.11.1 + @types/better-sqlite3@9.6.0 (pinned to 12.11.1 — 13.0.3 prebuild crashes on this host with exit 5 / access violation on new Database(':memory:')). Created server/db.ts (data/scout.db, gitignored via data/) with tables channels (channel_id PK, channel_name, channel_url, subscriber_count, avg_views, engagement_rate_pct nullable, last_upload_date, days_since_last_upload, matched_keyword, qualified boolean as INTEGER, first_seen_at) and api_key_usage (key_label, date YYYY-MM-DD Pacific, units_used) — WAL mode, Pacific date via America/Los_Angeles. Helpers: isChannelKnown, recordChannel (upsert, preserves first_seen_at on conflict), getChannel, getUsageToday, addUsage, setUsageToday (for quotaExceeded sentinel in Phase 3), getDbForTesting (isolated :memory:), closeDb. Manual throwaway check (server/db-manual-check.ts) verified: dedup, qualified true/false, hidden-subscriber null fields, quota increment + sentinel, in-memory isolation — all passed, then removed. server/ and shared/ remain tsc-clean; .gitignore now includes data/.
 - Quota unit costs used throughout this plan (search.list=100,
   channels.list=1, videos.list=1, playlistItems.list=1) were
   verified against Google's official quota calculator as of
