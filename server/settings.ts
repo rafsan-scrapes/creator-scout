@@ -2,41 +2,21 @@ import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Request } from "express";
 import { z } from "zod";
-import { configureGeminiApiKey, configureGeminiModels } from "./gemini";
-import {
-  DEFAULT_GEMINI_IMAGE_MODEL,
-  DEFAULT_GEMINI_TEXT_MODEL,
-  GEMINI_IMAGE_MODELS,
-  GEMINI_TEXT_MODELS,
-  isGeminiImageModel,
-  isGeminiTextModel,
-  type GeminiImageModel,
-  type GeminiTextModel,
-} from "./gemini-models";
 
 const ENV_PATH = path.resolve(process.cwd(), ".env");
 const ENV_TEMP_PATH = path.resolve(process.cwd(), ".env.tmp");
 const SUPPORTED_KEYS = [
   "YOUTUBE_API_KEY",
-  "GEMINI_API_KEY",
-  "GEMINI_TEXT_MODEL",
-  "GEMINI_IMAGE_MODEL",
 ] as const;
 
 type SupportedKey = (typeof SUPPORTED_KEYS)[number];
 
 export interface ApiKeySettings {
   youtubeApiKey?: string;
-  geminiApiKey?: string;
-  geminiTextModel?: string;
-  geminiImageModel?: string;
 }
 
 export const apiKeySettingsSchema = z.object({
   youtubeApiKey: z.string().trim().min(8).max(512).optional(),
-  geminiApiKey: z.string().trim().min(8).max(512).optional(),
-  geminiTextModel: z.string().refine(isGeminiTextModel, "Select a supported Gemini text model.").optional(),
-  geminiImageModel: z.string().refine(isGeminiImageModel, "Select a supported Gemini image model.").optional(),
 }).strict();
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -78,7 +58,7 @@ export function isTrustedLocalSettingsMetadata(input: LocalSettingsRequestMetada
   ) return false;
 
   if (!input.host) return false;
-  if (/[@/\\\s%]/.test(input.host)) return false;
+  if (/[@/\\s%]/.test(input.host)) return false;
   let hostUrl: URL;
   try {
     hostUrl = new URL(`http://${input.host}`);
@@ -118,22 +98,8 @@ export function isLocalSettingsRequest(req: Request): boolean {
 }
 
 export function getApiKeyStatus() {
-  const textModel = isGeminiTextModel(process.env.GEMINI_TEXT_MODEL || "")
-    ? process.env.GEMINI_TEXT_MODEL as GeminiTextModel
-    : DEFAULT_GEMINI_TEXT_MODEL;
-  const imageModel = isGeminiImageModel(process.env.GEMINI_IMAGE_MODEL || "")
-    ? process.env.GEMINI_IMAGE_MODEL as GeminiImageModel
-    : DEFAULT_GEMINI_IMAGE_MODEL;
-
   return {
     youtube: Boolean(process.env.YOUTUBE_API_KEY?.trim()),
-    gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
-    models: {
-      text: textModel,
-      image: imageModel,
-      textOptions: GEMINI_TEXT_MODELS,
-      imageOptions: GEMINI_IMAGE_MODELS,
-    },
   };
 }
 
@@ -171,22 +137,9 @@ function setEnvValue(contents: string, key: SupportedKey, value: string): string
 
 export async function saveApiKeySettings(input: ApiKeySettings) {
   const youtubeApiKey = validateApiKey(input.youtubeApiKey, "YouTube API key");
-  const geminiApiKey = validateApiKey(input.geminiApiKey, "Gemini API key");
-  const currentStatus = getApiKeyStatus();
-  const textModel = input.geminiTextModel ?? currentStatus.models.text;
-  const imageModel = input.geminiImageModel ?? currentStatus.models.image;
 
-  if (!youtubeApiKey && !geminiApiKey
-    && input.geminiTextModel === undefined
-    && input.geminiImageModel === undefined) {
-    throw new Error("Enter a replacement key or select a model to save.");
-  }
-
-  if (!isGeminiTextModel(textModel)) {
-    throw new Error("Select a supported Gemini text model.");
-  }
-  if (!isGeminiImageModel(imageModel)) {
-    throw new Error("Select a supported Gemini image model.");
+  if (!youtubeApiKey) {
+    throw new Error("Enter a replacement key to save.");
   }
 
   let contents = "";
@@ -199,19 +152,12 @@ export async function saveApiKeySettings(input: ApiKeySettings) {
   if (youtubeApiKey) {
     contents = setEnvValue(contents, "YOUTUBE_API_KEY", youtubeApiKey);
   }
-  if (geminiApiKey) {
-    contents = setEnvValue(contents, "GEMINI_API_KEY", geminiApiKey);
-  }
-  contents = setEnvValue(contents, "GEMINI_TEXT_MODEL", textModel);
-  contents = setEnvValue(contents, "GEMINI_IMAGE_MODEL", imageModel);
 
   await writeFile(ENV_TEMP_PATH, contents, { encoding: "utf8", mode: 0o600 });
   await rename(ENV_TEMP_PATH, ENV_PATH);
   await chmod(ENV_PATH, 0o600);
 
   if (youtubeApiKey) process.env.YOUTUBE_API_KEY = youtubeApiKey;
-  if (geminiApiKey) configureGeminiApiKey(geminiApiKey);
-  configureGeminiModels(textModel, imageModel);
 
   return getApiKeyStatus();
 }
