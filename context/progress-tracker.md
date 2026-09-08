@@ -9,11 +9,11 @@ so the next session doesn't have to rediscover it.
 
 ## Current Phase
 
-- Phase 3 — Rework the YouTube service
+- Phase 5 — Rework the YouTube service
 
 ## Current Goal
 
-- Phase 3 — Rework the YouTube service — all steps 1-4 complete, verify before Phase 4
+- Phase 5 - complete first 4 steps of reworking the client
 
 ## Completed
 
@@ -21,10 +21,11 @@ so the next session doesn't have to rediscover it.
 - Phase 1 — Strip the app down (2026-09-08)
 - Phase 2 — Add the SQLite persistence layer (2026-09-08)
 - Phase 3 — Rework the YouTube service (2026-09-08) — steps 1-4 complete (see Session Notes)
+- Phase 4
 
 ## In Progress
 
-- None — Phase 4 ready to start
+— Phase 5 ready to start
 ## Next Up
 
 Work through these phases in order. Do not skip ahead — later
@@ -310,6 +311,19 @@ where they still fit).
   compatible, `sk-nry-...` Bearer key) and not Gemini — this
   is documented for the future, not implemented now.
 
+- **Phase 4 progress delivery: single synchronous response
+  (a), not streaming/polling (b).** Rationale: request is for
+  one blocking `POST /api/scout` that returns once the whole
+  run finishes. Target counts are small (10-50 in Core User
+  Flow; schema caps at 500 but `targetCount` is the stop
+  condition) and the run is server-bound YouTube calls
+  (`search` 100 + `channels`/`playlistItems`/`videos` at 1
+  each) with dedup skip on known channels, so latency is
+  acceptable without progress streaming. Client shows a spinner
+  until the single `ScoutResponse` arrives. Reconsider
+  streaming/polling only if the manual live-key pass (Phase 7)
+  shows runs commonly exceed a comfortable spinner duration.
+
 ## Session Notes
 
 - The original repo's `HANDOFF.md` lists these as the files
@@ -337,3 +351,4 @@ where they still fit).
   this writing — if YouTube changes these costs, the "Phase 3"
   unit-cost constants need updating in one place, not
   scattered through the code.
+- 2026-09-08 — Phase 4: confirmed Insights/Ideas/Script/Thumbnail routes already removed (Phase 1). Added Scout contracts to shared/schema.ts (SCOUT_KEYWORD_LIMIT 25, scoutRequestSchema with min<=max superRefine, scoutChannelSchema, scoutStopReasonSchema target_reached/keywords_exhausted/quota_exhausted, scoutResponseSchema). Added POST /api/scout to server/routes.ts with dedicated scoutRateLimit (10/60s), Zod validation, deduped keywords, single synchronous runScoutDiscovery call, and response {channels, stopReason, found, requested, keywordsSearched} matching ScoutResponse semantics. Progress delivery is single synchronous response (Architecture Decisions) — no streaming/polling; client shows spinner until ScoutResponse arrives. Re-check if Phase 7 live-key pass shows long runs. server/ and shared/ remain tsc-clean; no live YouTube calls made.
