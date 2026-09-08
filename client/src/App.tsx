@@ -9,13 +9,13 @@ import { ControllerGuide } from "@/components/controller-guide";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
-import ResearchDashboard from "@/pages/research";
+import ScoutPage from "@/pages/scout";
 import SettingsPage from "@/pages/settings";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={ResearchDashboard} />
+      <Route path="/" component={ScoutPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
