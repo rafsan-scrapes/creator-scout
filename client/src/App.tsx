@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ControllerGuide } from "@/components/controller-guide";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
@@ -44,7 +43,6 @@ function AppLayout() {
               <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle sidebar" />
             </div>
             <div className="flex items-center gap-1">
-              <ControllerGuide />
               <ThemeToggle />
             </div>
           </header>

@@ -13,7 +13,7 @@ so the next session doesn't have to rediscover it.
 
 ## Current Goal
 
-- Phase 5 - complete first 4 steps of reworking the client
+- Phase 5: complete last step
 
 ## Completed
 
@@ -25,7 +25,7 @@ so the next session doesn't have to rediscover it.
 
 ## In Progress
 
-— Phase 5 ready to start
+— Phase 5
 ## Next Up
 
 Work through these phases in order. Do not skip ahead — later
@@ -352,3 +352,4 @@ where they still fit).
   unit-cost constants need updating in one place, not
   scattered through the code.
 - 2026-09-08 — Phase 4: confirmed Insights/Ideas/Script/Thumbnail routes already removed (Phase 1). Added Scout contracts to shared/schema.ts (SCOUT_KEYWORD_LIMIT 25, scoutRequestSchema with min<=max superRefine, scoutChannelSchema, scoutStopReasonSchema target_reached/keywords_exhausted/quota_exhausted, scoutResponseSchema). Added POST /api/scout to server/routes.ts with dedicated scoutRateLimit (10/60s), Zod validation, deduped keywords, single synchronous runScoutDiscovery call, and response {channels, stopReason, found, requested, keywordsSearched} matching ScoutResponse semantics. Progress delivery is single synchronous response (Architecture Decisions) — no streaming/polling; client shows spinner until ScoutResponse arrives. Re-check if Phase 7 live-key pass shows long runs. server/ and shared/ remain tsc-clean; no live YouTube calls made.
+- 2026-09-08 — Phase 5: deleted client/src/pages/research.tsx and replaced with client/src/pages/scout.tsx (only real page besides Settings). Built Scout form (keywords textarea one-per-line/comma, SCOUT_KEYWORD_LIMIT 25 counter, min/max subscribers, maxDaysSinceUpload 1-3650, minAvgViews, optional minEngagementRate 0-100, targetCount 1-500) using shadcn/ui (Card/Input/Textarea/Label/Table/Badge/Alert/Button), validation mirroring scoutRequestSchema (min<=max etc.) with inline Alert. Wired single synchronous POST /api/scout (deduped keywords, spinner Running…, error Alert with category/suggestion, quota_exhausted treated as normal partial not error). Built results table (Channel linked to channel_url + ExternalLink, Subscriber Count, Avg Views, Engagement Rate % — if present, Last Upload Date, Days Since, Matched Keyword badge) with empty-state handling. Added run-status Card (stopReason badge + found/requested + keywordsSearched, quota_exhausted amber partial messaging, target_reached green, keywords_exhausted neutral). Step 5: removed routing/nav for deleted pages — deleted client/src/components/controller-guide.tsx, coming-soon.tsx, empty-state.tsx, search-filters.tsx, video-card.tsx, video-card-skeleton.tsx, video-detail-dialog.tsx and client/src/lib/research-export.ts, pdfGenerator.ts, youtube-analytics.ts; removed ControllerGuide from client/src/App.tsx header and Compass unused import from app-sidebar.tsx; routing now Scout-only (Switch: / -> ScoutPage, /settings -> SettingsPage, fallback NotFound — no /ideas redirect remains). Updated client/index.html title/description to Creator Scout and client/src/pages/not-found.tsx copy Return to Scout. Verified grep shows no remaining research/ideas/script/thumbnail/workflow-context/evidence imports. npm run check now passes with 0 errors (was 65 across 3 files). No live YouTube calls made.

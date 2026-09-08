@@ -15,7 +15,7 @@ import { Search, Play, Settings } from "lucide-react";
 
 const menuItems = [
   {
-    title: "Research",
+    title: "Scout",
     url: "/",
     icon: Search,
   },
@@ -36,7 +36,7 @@ export function AppSidebar() {
               YouTube Pro
             </span>
             <span className="text-xs text-muted-foreground">
-              Research
+              Scout
             </span>
           </div>
         </Link>

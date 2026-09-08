@@ -19,13 +19,13 @@ export default function NotFound() {
           </div>
 
           <p className="text-sm leading-relaxed text-muted-foreground">
-            This page may have moved, or the address may be incorrect. Return to Research to continue your workflow.
+            This page may have moved, or the address may be incorrect. Return to Scout to continue.
           </p>
 
           <Button asChild>
             <Link href="/">
               <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
-              Return to Research
+              Return to Scout
             </Link>
           </Button>
         </CardContent>
