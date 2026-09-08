@@ -13,17 +13,18 @@ so the next session doesn't have to rediscover it.
 
 ## Current Goal
 
-- Phase 3 — Rework the YouTube service (multi-key rotation + discovery pipeline)
+- Phase 3 — Rework the YouTube service — all steps 1-4 complete, verify before Phase 4
 
 ## Completed
 
 - Phase 0
 - Phase 1 — Strip the app down (2026-09-08)
 - Phase 2 — Add the SQLite persistence layer (2026-09-08)
+- Phase 3 — Rework the YouTube service (2026-09-08) — steps 1-4 complete (see Session Notes)
 
 ## In Progress
 
-— Phase 3 ready to start
+- None — Phase 4 ready to start
 ## Next Up
 
 Work through these phases in order. Do not skip ahead — later
@@ -336,6 +337,7 @@ where they still fit).
   invent a new secrets mechanism.
 - 2026-09-08 — Phase 1 check: node_modules was missing so npm install was run first (401 packages). npm run check (tsc --noEmit) now reports 65 errors across exactly 3 files — client/src/lib/pdfGenerator.ts (12 implicit-any on callbacks, pre-existing), client/src/lib/research-export.ts (18 implicit-any + 2 missing IdeaPackage/ResearchInsightsResponse from deleted shared/evidence-contracts.ts), client/src/pages/research.tsx (26 implicit-any + missing workflow-context + 3 missing evidence exports). Zero errors in server/ or shared/ — server/routes.ts, server/settings.ts, and shared/schema.ts are clean after the Gemini/evidence removal. No surprise load-bearing shared code. The dangling research-export.ts/pdfGenerator.ts exports are expected to be deleted/reworked with research.tsx in Phase 5. package-lock.json still contains @google/genai entries — will be pruned by the next npm install after lockfile update. .env.example was already Scout-aligned (no GEMINI_* vars), so no change needed there. server/youtube.ts, server/settings.ts, server/routes.ts preserved as required.
 - 2026-09-08 — Phase 2: added better-sqlite3@12.11.1 + @types/better-sqlite3@9.6.0 (pinned to 12.11.1 — 13.0.3 prebuild crashes on this host with exit 5 / access violation on new Database(':memory:')). Created server/db.ts (data/scout.db, gitignored via data/) with tables channels (channel_id PK, channel_name, channel_url, subscriber_count, avg_views, engagement_rate_pct nullable, last_upload_date, days_since_last_upload, matched_keyword, qualified boolean as INTEGER, first_seen_at) and api_key_usage (key_label, date YYYY-MM-DD Pacific, units_used) — WAL mode, Pacific date via America/Los_Angeles. Helpers: isChannelKnown, recordChannel (upsert, preserves first_seen_at on conflict), getChannel, getUsageToday, addUsage, setUsageToday (for quotaExceeded sentinel in Phase 3), getDbForTesting (isolated :memory:), closeDb. Manual throwaway check (server/db-manual-check.ts) verified: dedup, qualified true/false, hidden-subscriber null fields, quota increment + sentinel, in-memory isolation — all passed, then removed. server/ and shared/ remain tsc-clean; .gitignore now includes data/.
+- 2026-09-08 — Phase 3: reworked server/youtube.ts in place (kept fetchYouTubeJson/youtubeHttpError patterns). Step 1: multi-key config — getYouTubeApiKeys() reads YOUTUBE_API_KEYS comma-separated with YOUTUBE_API_KEY fallback (Phase 6 will update Settings), getKeyLabel/pickAvailableKey/requireAvailableKey check getUsageToday vs QUOTA_EXHAUSTED_SENTINEL (1_000_000) + DAILY_QUOTA_UNITS (10_000). Step 2a-2j: QUOTA_COST constants (100/1/1/1), fetchYouTubeJsonWithQuota (proactive pickAvailableKey + addUsage), searchChannelIdsForKeyword (search.list type=video), isChannelKnown dedup, fetchChannelsBatch (50, hidden + subs range checks record qualified=false), fetchRecentVideoIdsForPlaylist (10), fetchVideoStatsBatch (50), computeChannelMetrics (avg_views mean, engagement_rate_pct mean (likes+comments)/views skip 0/missing null, days_since_last_upload from most recent publishedAt), passesScoutFilters + recordChannel either way, discoverChannelsForKeyword orchestrator. Step 3: runScoutDiscovery({keywords, filters, targetCount}) — iterates keywords with target_reached / keywords_exhausted / quota_exhausted stop conditions, checks pickAvailableKey before each keyword, returns ScoutRunResult{qualifiedChannels, stopReason, found, requested, keywordsSearched}. Step 4: fetchYouTubeJsonWithQuota now wraps every YouTube call with 403 quotaExceeded catch — marks key exhausted via setUsageToday(sentinel), rotates to next pickAvailableKey, retries same call once; if no keys remain returns YOUTUBE_QUOTA_EXHAUSTED quota error, runScoutDiscovery converts to graceful quota_exhausted partial return (never throws quota up to route handler). No live YouTube calls made; server/shared remain tsc-clean.
 - Quota unit costs used throughout this plan (search.list=100,
   channels.list=1, videos.list=1, playlistItems.list=1) were
   verified against Google's official quota calculator as of

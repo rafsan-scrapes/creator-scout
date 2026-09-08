@@ -2,7 +2,7 @@ import type { Video, SearchFilters, SearchResponse } from "@shared/schema";
 import { UploadDateFilter, DurationFilter, SortBy } from "@shared/schema";
 import { createHash } from "node:crypto";
 import { ProviderError } from "./provider-errors";
-import { addUsage, getUsageToday, isChannelKnown, recordChannel } from "./db";
+import { addUsage, getUsageToday, isChannelKnown, recordChannel, setUsageToday } from "./db";
 import type { ChannelRecord } from "./db";
 
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
@@ -234,10 +234,18 @@ async function fetchYouTubeJson(url: string, stage: string): Promise<any> {
   }
 }
 
+function isQuotaError(error: unknown): boolean {
+  return error instanceof ProviderError && error.category === "quota";
+}
+
 /**
  * Quota-aware fetch: picks an available key for the given stage/cost,
  * appends `key=`, calls YouTube, then increments `api_key_usage`.
  * Proactive rotation — never waits for a 403 to rotate.
+ * Backstop (step 4): on 403 quotaExceeded / quota error, marks the key
+ * exhausted (sentinel) in api_key_usage, rotates to the next available
+ * key, and retries the same call once. If no keys remain, throws a
+ * YOUTUBE_QUOTA_EXHAUSTED quota error for the caller to handle gracefully.
  */
 async function fetchYouTubeJsonWithQuota(
   baseUrl: string,
@@ -245,11 +253,60 @@ async function fetchYouTubeJsonWithQuota(
   stage: string,
   cost: number,
 ): Promise<any> {
-  const picked = requireAvailableKey(cost, stage);
-  const url = `${baseUrl}?${params.toString()}&key=${encodeURIComponent(picked.key)}`;
-  const data = await fetchYouTubeJson(url, stage);
-  addUsage(picked.label, cost);
-  return data;
+  let picked = pickAvailableKey(cost);
+  if (!picked) {
+    throw new ProviderError({
+      message: `All YouTube API keys are out of quota for today (stage: ${stage}).`,
+      category: "quota",
+      code: "YOUTUBE_QUOTA_EXHAUSTED",
+      status: 429,
+      retryable: false,
+    });
+  }
+
+  const urlFor = (key: string) => `${baseUrl}?${params.toString()}&key=${encodeURIComponent(key)}`;
+
+  try {
+    const data = await fetchYouTubeJson(urlFor(picked.key), stage);
+    addUsage(picked.label, cost);
+    return data;
+  } catch (error) {
+    if (!isQuotaError(error)) throw error;
+
+    // Backstop: this key just hit quotaExceeded — mark exhausted for today
+    setUsageToday(picked.label, QUOTA_EXHAUSTED_SENTINEL);
+
+    const next = pickAvailableKey(cost);
+    if (!next) {
+      throw new ProviderError({
+        message: `All YouTube API keys are exhausted after quotaExceeded on ${stage}.`,
+        category: "quota",
+        code: "YOUTUBE_QUOTA_EXHAUSTED",
+        status: 429,
+        retryable: false,
+        cause: error,
+      });
+    }
+
+    try {
+      const data2 = await fetchYouTubeJson(urlFor(next.key), stage);
+      addUsage(next.label, cost);
+      return data2;
+    } catch (error2) {
+      if (isQuotaError(error2)) {
+        setUsageToday(next.label, QUOTA_EXHAUSTED_SENTINEL);
+        throw new ProviderError({
+          message: `YouTube quota exhausted on retry for ${stage}.`,
+          category: "quota",
+          code: "YOUTUBE_QUOTA_EXHAUSTED",
+          status: 429,
+          retryable: false,
+          cause: error2,
+        });
+      }
+      throw error2;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +675,127 @@ export async function discoverChannelsForKeyword(
   }
 
   return qualified;
+}
+
+// ---------------------------------------------------------------------------
+// Step 3 — Whole-run orchestrator with stop conditions
+// Stop as soon as: (a) target qualified count reached, (b) all keywords
+// exhausted, or (c) all keys exhausted for today. Never throws quota —
+// returns partial qualified results with a clear status.
+// ---------------------------------------------------------------------------
+
+export type ScoutStopReason = "target_reached" | "keywords_exhausted" | "quota_exhausted";
+
+export interface ScoutRunOptions {
+  keywords: string[];
+  filters: ScoutFilters;
+  targetCount: number;
+}
+
+export interface ScoutRunResult {
+  qualifiedChannels: ChannelRecord[];
+  stopReason: ScoutStopReason;
+  found: number;
+  requested: number;
+  keywordsSearched: number;
+}
+
+export async function runScoutDiscovery(options: ScoutRunOptions): Promise<ScoutRunResult> {
+  const keywords = options.keywords.map((k) => k.trim()).filter(Boolean);
+  const targetCount = Math.max(1, Math.floor(options.targetCount));
+
+  if (keywords.length === 0) {
+    return {
+      qualifiedChannels: [],
+      stopReason: "keywords_exhausted",
+      found: 0,
+      requested: targetCount,
+      keywordsSearched: 0,
+    };
+  }
+
+  // Fail fast if no key has any remaining quota
+  if (!pickAvailableKey(QUOTA_COST.search)) {
+    return {
+      qualifiedChannels: [],
+      stopReason: "quota_exhausted",
+      found: 0,
+      requested: targetCount,
+      keywordsSearched: 0,
+    };
+  }
+
+  const qualifiedChannels: ChannelRecord[] = [];
+  let keywordsSearched = 0;
+
+  for (const keyword of keywords) {
+    // Check target before starting next keyword
+    if (qualifiedChannels.length >= targetCount) break;
+
+    // Check quota before starting next keyword (needs at least one search call)
+    if (!pickAvailableKey(QUOTA_COST.search)) {
+      return {
+        qualifiedChannels: qualifiedChannels.slice(0, targetCount),
+        stopReason: "quota_exhausted",
+        found: qualifiedChannels.length,
+        requested: targetCount,
+        keywordsSearched,
+      };
+    }
+
+    let batch: ChannelRecord[];
+    try {
+      batch = await discoverChannelsForKeyword(keyword, options.filters);
+    } catch (e) {
+      if (isQuotaError(e)) {
+        // Entire run is out of quota (rotation already tried inside fetchYouTubeJsonWithQuota)
+        return {
+          qualifiedChannels: qualifiedChannels.slice(0, targetCount),
+          stopReason: "quota_exhausted",
+          found: qualifiedChannels.length,
+          requested: targetCount,
+          keywordsSearched,
+        };
+      }
+      throw e;
+    }
+
+    keywordsSearched += 1;
+
+    for (const ch of batch) {
+      if (qualifiedChannels.length >= targetCount) break;
+      qualifiedChannels.push(ch);
+    }
+
+    if (qualifiedChannels.length >= targetCount) {
+      return {
+        qualifiedChannels: qualifiedChannels.slice(0, targetCount),
+        stopReason: "target_reached",
+        found: qualifiedChannels.length >= targetCount ? targetCount : qualifiedChannels.length,
+        requested: targetCount,
+        keywordsSearched,
+      };
+    }
+  }
+
+  // All keywords exhausted without hitting target
+  if (!pickAvailableKey(1)) {
+    return {
+      qualifiedChannels,
+      stopReason: "quota_exhausted",
+      found: qualifiedChannels.length,
+      requested: targetCount,
+      keywordsSearched,
+    };
+  }
+
+  return {
+    qualifiedChannels,
+    stopReason: "keywords_exhausted",
+    found: qualifiedChannels.length,
+    requested: targetCount,
+    keywordsSearched,
+  };
 }
 
 // ---------------------------------------------------------------------------
