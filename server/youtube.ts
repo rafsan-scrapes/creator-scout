@@ -59,8 +59,6 @@ export function pickAvailableKey(cost = 1): { key: string; label: string; index:
     const used = getUsageToday(label);
     if (used >= QUOTA_EXHAUSTED_SENTINEL) continue;
     if (used + cost > DAILY_QUOTA_UNITS) continue;
-    // Also skip if already over quota (safety)
-    if (used >= DAILY_QUOTA_UNITS) continue;
     return { key: keys[i]!, label, index: i };
   }
   return null;

@@ -21,7 +21,7 @@ export interface ApiKeySettings {
 export const apiKeySettingsSchema = z.object({
   youtubeApiKey: z.string().trim().min(8).max(512).optional(),
   youtubeApiKeys: z.union([
-    z.string().max(8192),
+    z.string().max(16384),
     z.array(z.string().max(512)).max(25),
   ]).optional(),
 }).strict();

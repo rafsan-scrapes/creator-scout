@@ -324,13 +324,13 @@ where they still fit).
   `setEnvValue` stores `YOUTUBE_API_KEYS="key1,key2"` via `JSON.stringify`; reader splits on `,`
   relying on `loadEnvFile` to strip quotes (Node 22 does). Add explicit guard on read
   (`value.replace(/^"|"$/g, "")` before split) or write without `JSON.stringify`, and add a test.
-- **W7 — `server/settings.ts:22-27` string vs array caps misaligned.**
+- **[DONE 2026-09-09] W7 — `server/settings.ts:22-27` string vs array caps misaligned.**
   `youtubeApiKeys` string cap `8192` vs array cap `25 * 512 + 24` — string cap is tighter.
   Raise string cap to `16384` or document that paste-variance is via textarea (string) path.
-- **W8 — `server/youtube.ts:52` dead duplicate quota check.**
+- **[DONE 2026-09-09] W8 — `server/youtube.ts:52` dead duplicate quota check.**
   `if (used + cost > DAILY_QUOTA_UNITS) continue;` already covers `if (used >= DAILY_QUOTA_UNITS) continue;`
   — second branch is dead. Remove it.
-- **W9 — `server/index.ts` `trust proxy` not explicitly disabled.**
+- **[DONE 2026-09-09] W9 — `server/index.ts` `trust proxy` not explicitly disabled.**
   Rate limiter keys on `req.ip || req.socket.remoteAddress`. If `HOST` is ever changed, spoofed
   `X-Forwarded-For` could bypass limits. Add `app.set("trust proxy", false)` and a comment that
   limiter is per-process local-only (README already warns not distributed).

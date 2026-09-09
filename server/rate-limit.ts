@@ -10,6 +10,9 @@ export function createRateLimiter(options: RateLimiterOptions = {}) {
   const maxRequests = options.maxRequests ?? 10;
   const windowMs = options.windowMs ?? 60_000;
   const now = options.now ?? Date.now;
+  // Per-process, in-memory limiter — suitable for this local-only single-process
+  // server (default HOST 127.0.0.1). Not suitable for a distributed deployment;
+  // see README warning. Must not trust forwarding headers (trust proxy = false).
   const store = new Map<string, { count: number; resetTime: number }>();
   let requestCount = 0;
 

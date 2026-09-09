@@ -47,8 +47,10 @@ test("local Settings rejects forwarded, non-loopback, and cross-origin requests"
 test("Settings payload is strict, bounded, and rejects unknown keys", () => {
   assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKey: "x".repeat(513) }).success, false);
   assert.equal(apiKeySettingsSchema.safeParse({ unexpected: true }).success, false);
-  assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKeys: "x".repeat(8193) }).success, false);
+  assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKeys: "x".repeat(16385) }).success, false);
   assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKey: "valid-key-123", unexpected: true }).success, false);
+  // 25 keys of 512 chars + 24 commas = 12824 — must pass the string cap
+  assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKeys: Array(25).fill("x".repeat(512)).join(",") }).success, true);
 });
 
 test("Scout request schema enforces keyword count, subscriber range, and target bounds", () => {

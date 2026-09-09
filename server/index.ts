@@ -12,6 +12,11 @@ try {
 const app = express();
 const httpServer = createServer(app);
 
+// Never trust X-Forwarded-For — this is a local-only server (default
+// 127.0.0.1). The in-memory rate limiter keys on req.ip/remoteAddress; if
+// trust proxy were enabled, spoofed forwarding headers could bypass it.
+app.set("trust proxy", false);
+
 app.disable("x-powered-by");
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
