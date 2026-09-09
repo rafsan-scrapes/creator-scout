@@ -304,7 +304,7 @@ where they still fit).
   and Replit dev deps `@replit/vite-plugin-*` + `optionalDependencies: bufferutil` are unused by
   Scout (`scout.tsx`/`settings.tsx` use only shadcn primitives + `lucide-react`). Remove them to
   shrink `dist/public` and audit surface. Verify `@google/genai` is already gone (it is).
-- **W2 — `server/index.ts:30-37` JSON limit `18mb` is legacy thumbnail value.**
+- **[DONE 2026-09-09] W2 — `server/index.ts:30-37` JSON limit `18mb` is legacy thumbnail value.**
   Comment says "Three prepared thumbnail references may contain up to 12 MB..." — Scout payloads
   are < 256 kB JSON. Keeping 18 MB widens DoS surface. Lower to `64kb` (or `256kb` max) and
   delete stale comment. `express.urlencoded { limit: "64kb" }` is already tight — JSON should match.

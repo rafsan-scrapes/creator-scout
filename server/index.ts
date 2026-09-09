@@ -27,14 +27,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.use(
-  express.json({
-    // Three prepared thumbnail references may contain up to 12 MB of decoded
-    // image data. Base64 and JSON framing require some headroom, but no active
-    // request needs the former 50 MB process-wide allowance.
-    limit: "18mb",
-  }),
-);
+app.use(express.json({ limit: "64kb" }));
 
 app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
