@@ -13,7 +13,7 @@ so the next session doesn't have to rediscover it.
 
 ## Current Goal
 
-- Phase 6.1 : C1–C3 done; remaining C4–C7 + W/I before Phase 7
+- Phase 6.1 : C1–C4 done; remaining C5–C7 + W/I before Phase 7
 
 ## Completed
 
@@ -27,6 +27,7 @@ so the next session doesn't have to rediscover it.
 - Phase 6.1 C1 — Settings page rewrite to multi-key contract — done (2026-09-09) (`npm run check` passes)
 - Phase 6.1 C2 — `SCOUT_KEYWORD_LIMIT` 25→50 + README caps updated — done (2026-09-09)
 - Phase 6.1 C3 — legacy `GET /api/youtube/search` removed from `server/routes.ts` — done (2026-09-09) (`npm run check` passes)
+- Phase 6.1 C4 — legacy `server/youtube.ts` `searchVideos`/`createSnapshotId` + `getPublishedAfter`/`getVideoDuration`/`getOrderBy` removed — done (2026-09-09) (`server/youtube.ts` 1096→746 lines, `npm run check` passes; `server/youtube.test.ts` now dangling — see C6)
 
 ## In Progress
 
@@ -265,7 +266,7 @@ where they still fit).
   `searchVideos`, `searchFiltersSchema`, and the `rateLimit` (`createRateLimiter().middleware`)
   instance if nothing else uses it. The Phase 1 comment on line 43 already says routes were removed
   — finish the job.
-- **C4 — `server/youtube.ts:820-1095` legacy `searchVideos` bypasses quota rotation & metering.**
+- **[DONE 2026-09-09] C4 — `server/youtube.ts:820-1095` legacy `searchVideos` (quota-bypass) — removed with helper dead-code.**
   `const apiKey = process.env.YOUTUBE_API_KEY?.trim() || getYouTubeApiKeys()[0]` + direct
   `fetchYouTubeJson(searchUrl, "search")` — no `pickAvailableKey`/`addUsage`/`setUsageToday`, no
   sentinel. While `GET /api/youtube/search` exists this is a 100-unit quota leak per call and
