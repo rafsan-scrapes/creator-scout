@@ -275,7 +275,7 @@ where they still fit).
   a TODO if they are kept for reference. Keep Scout helpers
   `fetchYouTubeJsonWithQuota` / `searchChannelIdsForKeyword` / `discoverChannelsForKeyword` /
   `runScoutDiscovery` as the forward path.
-- **C5 — `server/security-contracts.test.ts` has dangling imports → `npm test` throws `ERR_MODULE_NOT_FOUND`.**
+- **[DONE 2026-09-09] C5 — `server/security-contracts.test.ts` has dangling imports → `npm test` throws `ERR_MODULE_NOT_FOUND`.**
   Imports `narrationExtractionRequestSchema`, `titleRegenerationRequestSchema` from
   non-existent `./api-contracts` and `scriptInputSchema` from `@shared/schema` (deleted in Phase 1).
   `tsconfig.json` `exclude: ["**/*.test.ts"]` hides this from `npm run check`, but
@@ -284,14 +284,14 @@ where they still fit).
   vacuously via `strict()`. **Fix:** replace file with Scout contracts: assert
   `scoutRequestSchema`, `SCOUT_KEYWORD_LIMIT`, `scoutResponseSchema` bounds, keep
   `isTrustedLocalSettingsMetadata` loopback/forwarded/origin checks, keep rate-limiter test.
-- **C6 — `server/youtube.test.ts` only exercises deleted legacy path; Scout pipeline has zero coverage.**
+- **[DONE 2026-09-09] C6 — `server/youtube.test.ts` only exercises deleted legacy path; Scout pipeline has zero coverage.**
   All 7 tests import `searchVideos`/`createSnapshotId` and mock single-key `YOUTUBE_API_KEY`.
   No fixtures for `searchChannelIdsForKeyword`, `fetchChannelsBatch`, `discoverChannelsForKeyword`,
   `runScoutDiscovery`, quota rotation, or `recordChannel` dedup. Phase 6 says no live quota spend
   but fixture-based Scout tests are required. **Fix:** decide keep-or-delete; if kept, add mocked-`fetch`
   tests for Scout helpers (or at minimum keep one `createSnapshotId` test if that helper stays).
   As-is it gives false confidence.
-- **C7 — `shared/research-contracts.test.ts` imports deleted research contracts.**
+- **[DONE 2026-09-09] C7 — `shared/research-contracts.test.ts` imports deleted research contracts.**
   Imports `researchInsightsRequestSchema` / `researchInsightsResponseSchema` (deleted with
   `shared/evidence-contracts.ts`). Same `ERR_MODULE_NOT_FOUND` on `npm test` as C5 (hidden from
   `tsc` by exclude). **Fix:** delete file or replace with Scout contract tests
@@ -299,7 +299,7 @@ where they still fit).
 
 #### WARNING — should fix before Phase 7 (quality / security / bloat)
 
-- **W1 — `package.json` retains legacy deps.** `html2canvas`, `jspdf`, `recharts`, `framer-motion`,
+- **[DONE 2026-09-09] W1 — `package.json` retains legacy deps.** `html2canvas`, `jspdf`, `recharts`, `framer-motion`,
   `embla-carousel-react`, `vaul`, `react-resizable-panels`, `react-day-picker`, `input-otp`, `cmdk`
   and Replit dev deps `@replit/vite-plugin-*` + `optionalDependencies: bufferutil` are unused by
   Scout (`scout.tsx`/`settings.tsx` use only shadcn primitives + `lucide-react`). Remove them to
