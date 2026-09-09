@@ -207,3 +207,16 @@ export const scoutResponseSchema = z.object({
 }).strict();
 
 export type ScoutResponse = z.infer<typeof scoutResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// History (Phase 8) — manual channel adds to the exclusion list
+// Bound matches MAX_INPUT_LENGTH in server/channel-resolver.ts.
+// ---------------------------------------------------------------------------
+
+export const MANUAL_ADD_INPUT_LIMIT = 500;
+
+export const manualAddRequestSchema = z.object({
+  input: z.string().trim().min(1).max(MANUAL_ADD_INPUT_LIMIT),
+}).strict();
+
+export type ManualAddRequest = z.infer<typeof manualAddRequestSchema>;
