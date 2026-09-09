@@ -186,6 +186,11 @@ export const __testOverrides: {
     channelUrl: string;
     matchedKeyword: string;
   }) => void;
+  addManualChannel?: (record: {
+    channelId: string;
+    channelUrl: string;
+    channelName: string | null;
+  }) => AddManualChannelResult;
 } = {};
 
 export function isChannelKnown(channelId: string): boolean {
@@ -251,6 +256,38 @@ export function recordSearchChannel(
 export function recordChannel(record: ChannelRecord): void {
   if (__testOverrides.recordChannel) return __testOverrides.recordChannel(record);
   recordSearchChannel(record.channel_id, record.channel_name ?? null, record.channel_url, record.matched_keyword);
+}
+
+// Phase 8 step 3 — manual-add write. Persists identity only with
+// source = 'manual' and matched_keyword = NULL. Never throws on a
+// duplicate channel ID: an already-present ID (from search or manual)
+// is left untouched and reported as "already exists", so route
+// handlers never see a raw DB constraint error.
+export type AddManualChannelResult = "added" | "already exists";
+
+export function addManualChannel(
+  channelId: string,
+  channelUrl: string,
+  channelName: string | null,
+): AddManualChannelResult {
+  if (__testOverrides.addManualChannel) {
+    return __testOverrides.addManualChannel({ channelId, channelUrl, channelName });
+  }
+  const db = getDb();
+  const result = db.prepare(
+    `INSERT INTO channels (
+      channel_id, channel_url, channel_name, source, matched_keyword, added_at
+    ) VALUES (
+      @channel_id, @channel_url, @channel_name, 'manual', NULL, @added_at
+    )
+    ON CONFLICT(channel_id) DO NOTHING`,
+  ).run({
+    channel_id: channelId,
+    channel_url: channelUrl,
+    channel_name: channelName,
+    added_at: new Date().toISOString(),
+  });
+  return result.changes === 0 ? "already exists" : "added";
 }
 
 export function getChannel(channelId: string): ChannelHistoryRecord | undefined {
