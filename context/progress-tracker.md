@@ -13,7 +13,7 @@ so the next session doesn't have to rediscover it.
 
 ## Current Goal
 
-- Phase 6.1 : C1–C4 done; remaining C5–C7 + W/I before Phase 7
+- Phase 6.1 : C1–C7 done; remaining W/I before Phase 7
 
 ## Completed
 
@@ -27,7 +27,7 @@ so the next session doesn't have to rediscover it.
 - Phase 6.1 C1 — Settings page rewrite to multi-key contract — done (2026-09-09) (`npm run check` passes)
 - Phase 6.1 C2 — `SCOUT_KEYWORD_LIMIT` 25→50 + README caps updated — done (2026-09-09)
 - Phase 6.1 C3 — legacy `GET /api/youtube/search` removed from `server/routes.ts` — done (2026-09-09) (`npm run check` passes)
-- Phase 6.1 C4 — legacy `server/youtube.ts` `searchVideos`/`createSnapshotId` + `getPublishedAfter`/`getVideoDuration`/`getOrderBy` removed — done (2026-09-09) (`server/youtube.ts` 1096→746 lines, `npm run check` passes; `server/youtube.test.ts` now dangling — see C6)
+- Phase 6.1 C4 — legacy `server/youtube.ts` `searchVideos`/`createSnapshotId` + `getPublishedAfter`/`getVideoDuration`/`getOrderBy` removed — done (2026-09-09) (`server/youtube.ts` 1096→746 lines, `npm run check` passes)
 
 ## In Progress
 

@@ -98,13 +98,22 @@ export interface ChannelRecord {
   first_seen_at: string;
 }
 
+// Test-only overrides so pipeline tests can stub dedup without touching the real DB file.
+// ESM namespace imports are read-only, so monkey-patching `import * as db` does not work.
+export const __testOverrides: {
+  isChannelKnown?: (channelId: string) => boolean;
+  recordChannel?: (record: ChannelRecord) => void;
+} = {};
+
 export function isChannelKnown(channelId: string): boolean {
+  if (__testOverrides.isChannelKnown) return __testOverrides.isChannelKnown(channelId);
   const db = getDb();
   const row = db.prepare("SELECT 1 FROM channels WHERE channel_id = ?").get(channelId) as unknown;
   return Boolean(row);
 }
 
 export function recordChannel(record: ChannelRecord): void {
+  if (__testOverrides.recordChannel) return __testOverrides.recordChannel(record);
   const db = getDb();
   db.prepare(
     `INSERT INTO channels (

@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { NextFunction, Request, Response } from "express";
-import {
-  narrationExtractionRequestSchema,
-  titleRegenerationRequestSchema,
-} from "./api-contracts";
 import { createRateLimiter } from "./rate-limit";
 import {
   apiKeySettingsSchema,
   isTrustedLocalSettingsMetadata,
 } from "./settings";
-import { scriptInputSchema, videoSchema } from "@shared/schema";
+import {
+  SCOUT_KEYWORD_LIMIT,
+  scoutChannelSchema,
+  scoutRequestSchema,
+  scoutResponseSchema,
+  videoSchema,
+} from "@shared/schema";
 
 test("local Settings accepts a direct loopback same-origin request", () => {
   assert.equal(isTrustedLocalSettingsMetadata({
@@ -42,24 +44,84 @@ test("local Settings rejects forwarded, non-loopback, and cross-origin requests"
   }), false);
 });
 
-test("Settings payload is strict, bounded, and model allowlisted", () => {
+test("Settings payload is strict, bounded, and rejects unknown keys", () => {
   assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKey: "x".repeat(513) }).success, false);
-  assert.equal(apiKeySettingsSchema.safeParse({ geminiTextModel: "unknown-model" }).success, false);
   assert.equal(apiKeySettingsSchema.safeParse({ unexpected: true }).success, false);
+  assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKeys: "x".repeat(8193) }).success, false);
+  assert.equal(apiKeySettingsSchema.safeParse({ youtubeApiKey: "valid-key-123", unexpected: true }).success, false);
 });
 
-test("public text request schemas reject oversized or unknown input", () => {
-  assert.equal(narrationExtractionRequestSchema.safeParse({ scriptContent: "x".repeat(80_001) }).success, false);
-  assert.equal(titleRegenerationRequestSchema.safeParse({ topic: "x".repeat(501) }).success, false);
-  assert.equal(scriptInputSchema.safeParse({
-    topic: "topic",
-    format: "Tutorial/How-to",
-    audience: "General Audience",
-    unexpected: true,
-  }).success, false);
+test("Scout request schema enforces keyword count, subscriber range, and target bounds", () => {
+  const base = {
+    keywords: ["gaming"],
+    minSubscribers: 1000,
+    maxSubscribers: 50000,
+    maxDaysSinceUpload: 30,
+    minAvgViews: 1000,
+    targetCount: 10,
+  };
+
+  // Too many keywords (> SCOUT_KEYWORD_LIMIT) rejected
+  assert.equal(
+    scoutRequestSchema.safeParse({
+      ...base,
+      keywords: Array.from({ length: SCOUT_KEYWORD_LIMIT + 1 }, (_, i) => `kw${i}`),
+    }).success,
+    false,
+  );
+  // minSubscribers > maxSubscribers rejected via superRefine
+  assert.equal(
+    scoutRequestSchema.safeParse({ ...base, minSubscribers: 90000, maxSubscribers: 1000 }).success,
+    false,
+  );
+  // targetCount out of bounds
+  assert.equal(scoutRequestSchema.safeParse({ ...base, targetCount: 0 }).success, false);
+  assert.equal(scoutRequestSchema.safeParse({ ...base, targetCount: 501 }).success, false);
+  // Empty keywords rejected
+  assert.equal(scoutRequestSchema.safeParse({ ...base, keywords: [] }).success, false);
+  // Unknown key rejected (strict)
+  assert.equal(scoutRequestSchema.safeParse({ ...base, unexpected: true }).success, false);
+  // Valid request passes
+  assert.equal(scoutRequestSchema.safeParse(base).success, true);
+  // Optional minEngagementRate
+  assert.equal(scoutRequestSchema.safeParse({ ...base, minEngagementRate: 5.5 }).success, true);
+  assert.equal(scoutRequestSchema.safeParse({ ...base, minEngagementRate: -1 }).success, false);
+  assert.equal(scoutRequestSchema.safeParse({ ...base, minEngagementRate: 101 }).success, false);
 });
 
-test("incoming research video records have bounded text and arrays", () => {
+test("Scout channel and response schemas enforce strict bounds", () => {
+  const validChannel = {
+    channel_id: "UC_test123",
+    channel_name: "Test Channel",
+    channel_url: "https://www.youtube.com/channel/UC_test123",
+    subscriber_count: 12345,
+    avg_views: 5000,
+    engagement_rate_pct: 2.5,
+    last_upload_date: "2026-09-01T00:00:00.000Z",
+    days_since_last_upload: 8,
+    matched_keyword: "gaming",
+    qualified: true,
+    first_seen_at: "2026-09-09T00:00:00.000Z",
+  };
+  assert.equal(scoutChannelSchema.safeParse(validChannel).success, true);
+  // channel_name too long
+  assert.equal(scoutChannelSchema.safeParse({ ...validChannel, channel_name: "x".repeat(501) }).success, false);
+  // Unexpected key
+  assert.equal(scoutChannelSchema.safeParse({ ...validChannel, extra: true }).success, false);
+
+  const validResponse = {
+    channels: [validChannel],
+    stopReason: "target_reached" as const,
+    found: 1,
+    requested: 10,
+    keywordsSearched: 2,
+  };
+  assert.equal(scoutResponseSchema.safeParse(validResponse).success, true);
+  assert.equal(scoutResponseSchema.safeParse({ ...validResponse, stopReason: "unknown" }).success, false);
+  assert.equal(scoutResponseSchema.safeParse({ ...validResponse, unexpected: true }).success, false);
+});
+
+test("incoming Scout-related video records remain bounded", () => {
   const validVideo = {
     id: "video-id",
     title: "Title",
