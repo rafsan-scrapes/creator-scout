@@ -230,7 +230,7 @@ where they still fit).
 3. Update `.env.example` accordingly. [DONE 2026-09-09 — already shows
    `YOUTUBE_API_KEYS` + commented `YOUTUBE_API_KEY` fallback.]
 
-### Phase 6.1 — Full-Codebase Audit — Fix-List Before Phase 7 (added 2026-09-09)
+### Phase 6.1 — Full-Codebase Audit — Fix-List Before Phase 7 (added 2026-09-09) (completed 2026-09-09)
 
 > Full read-all pass done 2026-09-09 across: `server/settings.ts`, `server/youtube.ts`,
 > `server/db.ts`, `server/routes.ts`, `shared/schema.ts`, `client/src/pages/scout.tsx`,
@@ -334,14 +334,15 @@ where they still fit).
   Rate limiter keys on `req.ip || req.socket.remoteAddress`. If `HOST` is ever changed, spoofed
   `X-Forwarded-For` could bypass limits. Add `app.set("trust proxy", false)` and a comment that
   limiter is per-process local-only (README already warns not distributed).
-- **W10 — `server/settings.ts:57-91` `isTrustedLocalSettingsMetadata` host regex typo (I10).**
-  `if (/[@/\\s%]/.test(input.host))` — char class `\\s` is backslash-or-`s`, not whitespace.
-  Intended `/[@\/\s%]/`. Currently over-blocks hosts containing `s` and misses whitespace bypass.
-  Fix to `/[@\/%\s]/` or `/[@\/\s%]/`.
-- **W11 — `server/db.ts` no index on `matched_keyword` (minor).**
-  Not needed now; note only if keyword-scoped re-scout UX is added later.
+- **[DONE 2026-09-09] W10 — `server/settings.ts:57-91` `isTrustedLocalSettingsMetadata` host regex typo (I10) — fixed `/[@\/\s%]/`.**
+  `if (/[@/\\s%]/.test(input.host))` was char class `\\s` (backslash-or-`s`, not whitespace).
+  Corrected to `/[@\/%\s]/`. Previously over-blocked hosts containing `s` and missed whitespace bypass.
+- **[DONE 2026-09-09] W11 — `server/db.ts` no index on `matched_keyword` — added `idx_channels_matched_keyword`.**
+  `CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword)` in both
+  `getDb()` and `getDbForTesting()`. No migration needed; existing `channels` rows gain the index on next
+  open. Keeps keyword-scoped re-scout / reporting fast if that UX is ever added.
 
-#### INFO / NITS — polish when convenient (not blocking)
+#### INFO / NITS — polish when convenient (not blocking) - Deferred
 
 - **I1** `client/src/index.css:328-341` `ai-insights-glow` + `@keyframes ai-glow-pulse` are dead Research-era CSS (~1 kB). Remove.
 - **I2** `client/src/lib/queryClient.ts` `getQueryFn`/`queryClient` are instantiated but no `useQuery` remains in `scout.tsx` (only `apiRequest` is used by broken `settings.tsx`). Dead code — prune or keep for Phase 7.

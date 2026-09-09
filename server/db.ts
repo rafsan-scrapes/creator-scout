@@ -38,6 +38,7 @@ function getDb(): Database.Database {
       qualified INTEGER NOT NULL,
       first_seen_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);
     CREATE TABLE IF NOT EXISTS api_key_usage (
       key_label TEXT NOT NULL,
       date TEXT NOT NULL,
@@ -67,6 +68,7 @@ export function getDbForTesting(dbPath = ":memory:"): Database.Database {
       qualified INTEGER NOT NULL,
       first_seen_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);
     CREATE TABLE IF NOT EXISTS api_key_usage (
       key_label TEXT NOT NULL,
       date TEXT NOT NULL,

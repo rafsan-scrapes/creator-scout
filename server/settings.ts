@@ -65,7 +65,7 @@ export function isTrustedLocalSettingsMetadata(input: LocalSettingsRequestMetada
   ) return false;
 
   if (!input.host) return false;
-  if (/[@/\\s%]/.test(input.host)) return false;
+  if (/[@\/%\s]/.test(input.host)) return false;
   let hostUrl: URL;
   try {
     hostUrl = new URL(`http://${input.host}`);
