@@ -191,6 +191,7 @@ export const __testOverrides: {
     channelUrl: string;
     channelName: string | null;
   }) => AddManualChannelResult;
+  listHistory?: () => ChannelHistoryRecord[];
 } = {};
 
 export function isChannelKnown(channelId: string): boolean {
@@ -296,6 +297,14 @@ export function getChannel(channelId: string): ChannelHistoryRecord | undefined 
     .prepare("SELECT * FROM channels WHERE channel_id = ?")
     .get(channelId) as ChannelHistoryRecord | undefined;
   return row;
+}
+
+// Phase 8 step 4 — History tab read. Returns every exclusion-list row,
+// newest first.
+export function listHistory(): ChannelHistoryRecord[] {
+  if (__testOverrides.listHistory) return __testOverrides.listHistory();
+  const db = getDb();
+  return db.prepare("SELECT * FROM channels ORDER BY added_at DESC").all() as ChannelHistoryRecord[];
 }
 
 export function getUsageToday(keyLabel: string): number {
