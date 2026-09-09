@@ -3,7 +3,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 // Local SQLite file — gitignored via `data/` in .gitignore.
-// Deleting the file resets dedup history and quota counters; no migration.
+// Deleting the file resets dedup history and quota counters; no migration
+// beyond the Phase 8 step 1 one-time channels simplification below.
 const DB_PATH = path.resolve(process.cwd(), "data/scout.db");
 
 let _db: Database.Database | null = null;
@@ -18,64 +19,120 @@ function pacificDateString(date = new Date()): string {
   }).format(date);
 }
 
+// Phase 8 step 1 — identity-only exclusion-list schema. Metrics
+// (subscriber_count, avg_views, engagement_rate_pct, last_upload_date,
+// days_since_last_upload, qualified) were only ever needed for a single
+// run's ephemeral Results table, never for exclusion matching.
+const CHANNELS_DDL = `
+  CREATE TABLE IF NOT EXISTS channels (
+    channel_id TEXT PRIMARY KEY,
+    channel_url TEXT NOT NULL,
+    channel_name TEXT,
+    source TEXT NOT NULL CHECK (source IN ('search', 'manual')),
+    matched_keyword TEXT CHECK (matched_keyword IS NULL OR source = 'search'),
+    added_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);
+`;
+
+const API_KEY_USAGE_DDL = `
+  CREATE TABLE IF NOT EXISTS api_key_usage (
+    key_label TEXT NOT NULL,
+    date TEXT NOT NULL,
+    units_used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key_label, date)
+  );
+`;
+
+function columnNames(db: Database.Database, table: string): string[] {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    return rows.map((r) => r.name);
+  } catch {
+    return [];
+  }
+}
+
+function tableExists(db: Database.Database, table: string): boolean {
+  const row = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as unknown;
+  return Boolean(row);
+}
+
+// One-time migration for the 24 real rows found in data/scout.db on
+// 2026-09-10 (Phase 7 step 4 live run). Old table had per-run metrics +
+// first_seen_at; new table keeps identity only with source = 'search'.
+function migrateChannelsIfNeeded(db: Database.Database): void {
+  if (!tableExists(db, "channels")) {
+    db.exec(CHANNELS_DDL);
+    return;
+  }
+  const cols = columnNames(db, "channels");
+  const isNew = cols.includes("source") && cols.includes("added_at");
+  const isOld = cols.includes("qualified") || cols.includes("subscriber_count") || cols.includes("first_seen_at");
+  if (isNew && !isOld) {
+    // Already on the new schema — just ensure index exists.
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);`);
+    return;
+  }
+  if (!isOld) {
+    // Unknown shape — don't silently drop; recreate only if empty.
+    const count = (db.prepare("SELECT count(*) AS n FROM channels").get() as { n: number }).n;
+    if (count > 0) {
+      throw new Error(
+        `channels table has unexpected columns (${cols.join(",")}) with ${count} rows — refusing to migrate automatically`,
+      );
+    }
+    db.exec(`DROP TABLE channels;`);
+    db.exec(CHANNELS_DDL);
+    return;
+  }
+  // Old schema -> new schema, preserving history.
+  const migrate = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS channels_new (
+        channel_id TEXT PRIMARY KEY,
+        channel_url TEXT NOT NULL,
+        channel_name TEXT,
+        source TEXT NOT NULL CHECK (source IN ('search', 'manual')),
+        matched_keyword TEXT CHECK (matched_keyword IS NULL OR source = 'search'),
+        added_at TEXT NOT NULL
+      );
+    `);
+    db.exec(`
+      INSERT OR IGNORE INTO channels_new
+        (channel_id, channel_url, channel_name, source, matched_keyword, added_at)
+      SELECT
+        channel_id, channel_url, channel_name, 'search', matched_keyword, first_seen_at
+      FROM channels;
+    `);
+    db.exec(`DROP TABLE channels;`);
+    db.exec(`ALTER TABLE channels_new RENAME TO channels;`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);`);
+  });
+  migrate();
+}
+
 function getDb(): Database.Database {
   if (_db) return _db;
   mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new Database(DB_PATH);
   // WAL is better for concurrent reads; safe for this single-process local app.
   db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS channels (
-      channel_id TEXT PRIMARY KEY,
-      channel_name TEXT NOT NULL,
-      channel_url TEXT NOT NULL,
-      subscriber_count INTEGER,
-      avg_views INTEGER,
-      engagement_rate_pct REAL,
-      last_upload_date TEXT,
-      days_since_last_upload INTEGER,
-      matched_keyword TEXT NOT NULL,
-      qualified INTEGER NOT NULL,
-      first_seen_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);
-    CREATE TABLE IF NOT EXISTS api_key_usage (
-      key_label TEXT NOT NULL,
-      date TEXT NOT NULL,
-      units_used INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (key_label, date)
-    );
-  `);
+  migrateChannelsIfNeeded(db);
+  db.exec(API_KEY_USAGE_DDL);
   _db = db;
   return db;
 }
 
 // For tests / throwaway scripts that need an isolated in-memory DB.
+// Always creates the new minimal schema — no migration needed.
 export function getDbForTesting(dbPath = ":memory:"): Database.Database {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS channels (
-      channel_id TEXT PRIMARY KEY,
-      channel_name TEXT NOT NULL,
-      channel_url TEXT NOT NULL,
-      subscriber_count INTEGER,
-      avg_views INTEGER,
-      engagement_rate_pct REAL,
-      last_upload_date TEXT,
-      days_since_last_upload INTEGER,
-      matched_keyword TEXT NOT NULL,
-      qualified INTEGER NOT NULL,
-      first_seen_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_channels_matched_keyword ON channels(matched_keyword);
-    CREATE TABLE IF NOT EXISTS api_key_usage (
-      key_label TEXT NOT NULL,
-      date TEXT NOT NULL,
-      units_used INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (key_label, date)
-    );
-  `);
+  db.exec(CHANNELS_DDL);
+  db.exec(API_KEY_USAGE_DDL);
   return db;
 }
 
@@ -86,6 +143,24 @@ export function closeDb(): void {
   }
 }
 
+// Phase 8 step 1 — minimal exclusion-list record. channel_name is
+// best-effort nullable; matched_keyword is only ever set when
+// source = 'search' (enforced by CHECK above).
+export type ChannelSource = "search" | "manual";
+
+export interface ChannelHistoryRecord {
+  channel_id: string;
+  channel_url: string;
+  channel_name: string | null;
+  source: ChannelSource;
+  matched_keyword: string | null;
+  added_at: string;
+}
+
+// Legacy pipeline record (pre-Phase-8 full metrics). Kept so
+// server/youtube.ts call sites keep compiling until Phase 8 step 2
+// replaces them with recordSearchChannel — recordChannel() below
+// accepts this shape but persists only the minimal columns.
 export interface ChannelRecord {
   channel_id: string;
   channel_name: string;
@@ -114,46 +189,39 @@ export function isChannelKnown(channelId: string): boolean {
   return Boolean(row);
 }
 
+// Writes source = 'search' with the minimal columns. Extra metric
+// fields on the legacy ChannelRecord input are intentionally ignored —
+// they only ever described a single run's ephemeral Results table.
+// Upsert preserves the original added_at on conflict.
 export function recordChannel(record: ChannelRecord): void {
   if (__testOverrides.recordChannel) return __testOverrides.recordChannel(record);
   const db = getDb();
   db.prepare(
     `INSERT INTO channels (
-      channel_id, channel_name, channel_url, subscriber_count, avg_views,
-      engagement_rate_pct, last_upload_date, days_since_last_upload,
-      matched_keyword, qualified, first_seen_at
+      channel_id, channel_url, channel_name, source, matched_keyword, added_at
     ) VALUES (
-      @channel_id, @channel_name, @channel_url, @subscriber_count, @avg_views,
-      @engagement_rate_pct, @last_upload_date, @days_since_last_upload,
-      @matched_keyword, @qualified, @first_seen_at
+      @channel_id, @channel_url, @channel_name, 'search', @matched_keyword, @added_at
     )
     ON CONFLICT(channel_id) DO UPDATE SET
-      channel_name = excluded.channel_name,
       channel_url = excluded.channel_url,
-      subscriber_count = excluded.subscriber_count,
-      avg_views = excluded.avg_views,
-      engagement_rate_pct = excluded.engagement_rate_pct,
-      last_upload_date = excluded.last_upload_date,
-      days_since_last_upload = excluded.days_since_last_upload,
-      matched_keyword = excluded.matched_keyword,
-      qualified = excluded.qualified
+      channel_name = excluded.channel_name,
+      matched_keyword = excluded.matched_keyword
     `,
   ).run({
-    ...record,
-    qualified: record.qualified ? 1 : 0,
+    channel_id: record.channel_id,
+    channel_url: record.channel_url,
+    channel_name: record.channel_name ?? null,
+    matched_keyword: record.matched_keyword ?? null,
+    added_at: record.first_seen_at,
   });
 }
 
-type DbChannelRow = Omit<ChannelRecord, "qualified"> & { qualified: number };
-
-export function getChannel(channelId: string): ChannelRecord | undefined {
+export function getChannel(channelId: string): ChannelHistoryRecord | undefined {
   const db = getDb();
   const row = db
     .prepare("SELECT * FROM channels WHERE channel_id = ?")
-    .get(channelId) as DbChannelRow | undefined;
-  if (!row) return undefined;
-  const { qualified, ...rest } = row;
-  return { ...rest, qualified: Boolean(qualified) };
+    .get(channelId) as ChannelHistoryRecord | undefined;
+  return row;
 }
 
 export function getUsageToday(keyLabel: string): number {

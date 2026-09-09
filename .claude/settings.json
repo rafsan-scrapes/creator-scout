@@ -23,7 +23,8 @@
       "Bash(node -e \"const p=require\\('./node_modules/better-sqlite3/binding.gyp'\\); console.log\\(JSON.stringify\\(p,null,2\\)\\)\")",
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('better-sqlite3', p.dependencies['better-sqlite3']\\); console.log\\('@types', p.devDependencies['@types/better-sqlite3']\\)\")",
       "Bash(echo \"---server/shared check exit:$?\")",
-      "Bash(echo \"EXIT:$? LINES_ABOVE\")"
+      "Bash(echo \"EXIT:$? LINES_ABOVE\")",
+      "Bash(node -e \"const Database = require\\('better-sqlite3'\\); const db = new Database\\('data/scout.db'\\); const rows = db.prepare\\('SELECT * FROM channels LIMIT 5'\\).all\\(\\); console.log\\(JSON.stringify\\(rows, null, 2\\)\\); db.close\\(\\);\")"
     ]
   }
 }
