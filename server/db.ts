@@ -157,10 +157,10 @@ export interface ChannelHistoryRecord {
   added_at: string;
 }
 
-// Legacy pipeline record (pre-Phase-8 full metrics). Kept so
-// server/youtube.ts call sites keep compiling until Phase 8 step 2
-// replaces them with recordSearchChannel — recordChannel() below
-// accepts this shape but persists only the minimal columns.
+// Legacy pipeline record (pre-Phase-8 full metrics). Kept as the
+// deprecated input shape for recordChannel() and as the basis for the
+// pipeline result type in server/youtube.ts — the metrics only ever
+// described a single run's ephemeral Results table, never the DB.
 export interface ChannelRecord {
   channel_id: string;
   channel_name: string;
@@ -180,6 +180,12 @@ export interface ChannelRecord {
 export const __testOverrides: {
   isChannelKnown?: (channelId: string) => boolean;
   recordChannel?: (record: ChannelRecord) => void;
+  recordSearchChannel?: (record: {
+    channelId: string;
+    channelName: string | null;
+    channelUrl: string;
+    matchedKeyword: string;
+  }) => void;
 } = {};
 
 export function isChannelKnown(channelId: string): boolean {
@@ -189,12 +195,35 @@ export function isChannelKnown(channelId: string): boolean {
   return Boolean(row);
 }
 
-// Writes source = 'search' with the minimal columns. Extra metric
-// fields on the legacy ChannelRecord input are intentionally ignored —
-// they only ever described a single run's ephemeral Results table.
+// Phase 8 step 2 — the only search-path write. Persists identity only
+// with source = 'search'. Every evaluated channel is recorded here,
+// qualified or not, so a rejected channel is never re-fetched.
 // Upsert preserves the original added_at on conflict.
-export function recordChannel(record: ChannelRecord): void {
-  if (__testOverrides.recordChannel) return __testOverrides.recordChannel(record);
+export function recordSearchChannel(
+  channelId: string,
+  channelName: string | null,
+  channelUrl: string,
+  matchedKeyword: string,
+): void {
+  if (__testOverrides.recordSearchChannel) {
+    return __testOverrides.recordSearchChannel({ channelId, channelName, channelUrl, matchedKeyword });
+  }
+  // Backward compat for stubs written against the legacy recordChannel shape.
+  if (__testOverrides.recordChannel) {
+    return __testOverrides.recordChannel({
+      channel_id: channelId,
+      channel_name: channelName ?? channelId,
+      channel_url: channelUrl,
+      subscriber_count: null,
+      avg_views: null,
+      engagement_rate_pct: null,
+      last_upload_date: null,
+      days_since_last_upload: null,
+      matched_keyword: matchedKeyword,
+      qualified: false,
+      first_seen_at: new Date().toISOString(),
+    });
+  }
   const db = getDb();
   db.prepare(
     `INSERT INTO channels (
@@ -208,12 +237,20 @@ export function recordChannel(record: ChannelRecord): void {
       matched_keyword = excluded.matched_keyword
     `,
   ).run({
-    channel_id: record.channel_id,
-    channel_url: record.channel_url,
-    channel_name: record.channel_name ?? null,
-    matched_keyword: record.matched_keyword ?? null,
-    added_at: record.first_seen_at,
+    channel_id: channelId,
+    channel_url: channelUrl,
+    channel_name: channelName,
+    matched_keyword: matchedKeyword,
+    added_at: new Date().toISOString(),
   });
+}
+
+// Deprecated compat wrapper — delegates to recordSearchChannel, dropping
+// the metric fields. Kept for already-written test stubs; new code must
+// call recordSearchChannel directly.
+export function recordChannel(record: ChannelRecord): void {
+  if (__testOverrides.recordChannel) return __testOverrides.recordChannel(record);
+  recordSearchChannel(record.channel_id, record.channel_name ?? null, record.channel_url, record.matched_keyword);
 }
 
 export function getChannel(channelId: string): ChannelHistoryRecord | undefined {

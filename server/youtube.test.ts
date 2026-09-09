@@ -39,6 +39,7 @@ afterEach(() => {
   else process.env.YOUTUBE_API_KEY = originalKey;
   delete db.__testOverrides.isChannelKnown;
   delete db.__testOverrides.recordChannel;
+  delete db.__testOverrides.recordSearchChannel;
   try {
     for (let i = 0; i < 10; i++) db.setUsageToday(getKeyLabel(i), 0);
   } catch { /* ignore if DB not yet created */ }
@@ -148,7 +149,7 @@ describe("multi-key rotation", () => {
 describe("YouTube provider errors (Scout pipeline)", () => {
   beforeEach(() => {
     db.__testOverrides.isChannelKnown = () => false;
-    db.__testOverrides.recordChannel = () => {};
+    db.__testOverrides.recordSearchChannel = () => {};
   });
 
   test("distinguishes missing key", async () => {
@@ -209,7 +210,7 @@ describe("YouTube provider errors (Scout pipeline)", () => {
 describe("Scout pipeline", () => {
   beforeEach(() => {
     db.__testOverrides.isChannelKnown = () => false;
-    db.__testOverrides.recordChannel = () => {};
+    db.__testOverrides.recordSearchChannel = () => {};
     setKeys(["test-key"]); // pragma: allowlist secret
     try { db.setUsageToday(getKeyLabel(0), 0); } catch {}
   });
@@ -262,7 +263,7 @@ describe("Scout pipeline", () => {
     assert.equal(result.stopReason, "keywords_exhausted");
   });
 
-  test("hidden-subscriber channel is recorded as not qualified and excluded", async () => {
+  test("hidden-subscriber channel is recorded for exclusion and omitted from results", async () => {
     globalThis.fetch = (async (input) => {
       const url = String(input);
       if (url.includes("/search?")) return Response.json({ items: [{ snippet: { channelId: "UC_hidden" } }] });
@@ -277,8 +278,8 @@ describe("Scout pipeline", () => {
       throw new Error(`Unexpected URL: ${url}`);
     }) as typeof fetch;
 
-    const records: db.ChannelRecord[] = [];
-    db.__testOverrides.recordChannel = (r: db.ChannelRecord) => records.push(r);
+    const records: { channelId: string; channelName: string | null; channelUrl: string; matchedKeyword: string }[] = [];
+    db.__testOverrides.recordSearchChannel = (r) => records.push(r);
 
     const { runScoutDiscovery } = await import("./youtube");
     const result = await runScoutDiscovery({
@@ -289,8 +290,9 @@ describe("Scout pipeline", () => {
 
     assert.equal(result.found, 0);
     assert.equal(records.length, 1);
-    assert.equal(records[0]!.qualified, false);
-    assert.equal(records[0]!.channel_id, "UC_hidden");
+    assert.equal(records[0]!.channelId, "UC_hidden");
+    assert.equal(records[0]!.channelName, "Hidden");
+    assert.equal(records[0]!.matchedKeyword, "kw");
   });
 
   test("already-known channels are skipped entirely", async () => {

@@ -1,6 +1,5 @@
 import { ProviderError } from "./provider-errors";
-import { addUsage, getUsageToday, isChannelKnown, recordChannel, setUsageToday } from "./db";
-import type { ChannelRecord } from "./db";
+import { addUsage, getUsageToday, isChannelKnown, recordSearchChannel, setUsageToday } from "./db";
 
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
 const YOUTUBE_TIMEOUT_MS = 15_000;
@@ -277,6 +276,23 @@ export interface ScoutFilters {
   minEngagementRate?: number;
 }
 
+// Ephemeral per-run channel result — full metrics for the Results table
+// (matches shared/scoutChannelSchema at runtime). Persistence goes through
+// recordSearchChannel (identity only); this shape never touches the DB.
+export interface ScoutPipelineChannel {
+  channel_id: string;
+  channel_name: string;
+  channel_url: string;
+  subscriber_count: number | null;
+  avg_views: number | null;
+  engagement_rate_pct: number | null;
+  last_upload_date: string | null;
+  days_since_last_upload: number | null;
+  matched_keyword: string;
+  qualified: boolean;
+  first_seen_at: string;
+}
+
 export function chunkArray<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -491,7 +507,7 @@ function passesScoutFilters(
 export async function discoverChannelsForKeyword(
   keyword: string,
   filters: ScoutFilters,
-): Promise<ChannelRecord[]> {
+): Promise<ScoutPipelineChannel[]> {
   const trimmed = keyword.trim();
   if (!trimmed) return [];
 
@@ -506,7 +522,7 @@ export async function discoverChannelsForKeyword(
   // 2c
   const channelMap = await fetchChannelsBatch(unknownIds);
 
-  const qualified: ChannelRecord[] = [];
+  const qualified: ScoutPipelineChannel[] = [];
   const nowIso = new Date().toISOString();
 
   for (const channelId of unknownIds) {
@@ -514,56 +530,20 @@ export async function discoverChannelsForKeyword(
 
     // Channel not returned by channels.list (deleted/private) — record as not qualified
     if (!raw) {
-      recordChannel({
-        channel_id: channelId,
-        channel_name: channelId,
-        channel_url: channelUrlForId(channelId),
-        subscriber_count: null,
-        avg_views: null,
-        engagement_rate_pct: null,
-        last_upload_date: null,
-        days_since_last_upload: null,
-        matched_keyword: trimmed,
-        qualified: false,
-        first_seen_at: nowIso,
-      });
+      recordSearchChannel(channelId, channelId, channelUrlForId(channelId), trimmed);
       continue;
     }
 
     // 2d — hidden subscriber count -> always exclude, never estimate
     if (raw.hiddenSubscriberCount) {
-      recordChannel({
-        channel_id: raw.channelId,
-        channel_name: raw.channelName,
-        channel_url: channelUrlForId(raw.channelId),
-        subscriber_count: null,
-        avg_views: null,
-        engagement_rate_pct: null,
-        last_upload_date: null,
-        days_since_last_upload: null,
-        matched_keyword: trimmed,
-        qualified: false,
-        first_seen_at: nowIso,
-      });
+      recordSearchChannel(raw.channelId, raw.channelName, channelUrlForId(raw.channelId), trimmed);
       continue;
     }
 
     const subs = raw.subscriberCount;
     // 2e — subscriber range (still record so never re-checked)
     if (typeof subs !== "number" || subs < filters.minSubscribers || subs > filters.maxSubscribers) {
-      recordChannel({
-        channel_id: raw.channelId,
-        channel_name: raw.channelName,
-        channel_url: channelUrlForId(raw.channelId),
-        subscriber_count: subs ?? null,
-        avg_views: null,
-        engagement_rate_pct: null,
-        last_upload_date: null,
-        days_since_last_upload: null,
-        matched_keyword: trimmed,
-        qualified: false,
-        first_seen_at: nowIso,
-      });
+      recordSearchChannel(raw.channelId, raw.channelName, channelUrlForId(raw.channelId), trimmed);
       continue;
     }
 
@@ -576,19 +556,7 @@ export async function discoverChannelsForKeyword(
         // Playlist fetch failed -> record as not qualified (quota/network handled via ProviderError)
         // Re-throw quota errors so caller can handle; otherwise record and continue
         if (e instanceof ProviderError && e.category === "quota") throw e;
-        recordChannel({
-          channel_id: raw.channelId,
-          channel_name: raw.channelName,
-          channel_url: channelUrlForId(raw.channelId),
-          subscriber_count: subs,
-          avg_views: null,
-          engagement_rate_pct: null,
-          last_upload_date: null,
-          days_since_last_upload: null,
-          matched_keyword: trimmed,
-          qualified: false,
-          first_seen_at: nowIso,
-        });
+        recordSearchChannel(raw.channelId, raw.channelName, channelUrlForId(raw.channelId), trimmed);
         continue;
       }
     }
@@ -610,9 +578,9 @@ export async function discoverChannelsForKeyword(
     // 2h — compute metrics
     const metrics = computeChannelMetrics(videoStatsList);
 
-    // 2i — final filters (record either way)
+    // 2i — final filters (record either way so the channel is never re-fetched)
     const passed = passesScoutFilters(metrics, filters);
-    const rec: ChannelRecord = {
+    const rec: ScoutPipelineChannel = {
       channel_id: raw.channelId,
       channel_name: raw.channelName,
       channel_url: channelUrlForId(raw.channelId),
@@ -625,7 +593,7 @@ export async function discoverChannelsForKeyword(
       qualified: passed,
       first_seen_at: nowIso,
     };
-    recordChannel(rec);
+    recordSearchChannel(rec.channel_id, rec.channel_name, rec.channel_url, trimmed);
     if (passed) qualified.push(rec);
   }
 
@@ -648,7 +616,7 @@ export interface ScoutRunOptions {
 }
 
 export interface ScoutRunResult {
-  qualifiedChannels: ChannelRecord[];
+  qualifiedChannels: ScoutPipelineChannel[];
   stopReason: ScoutStopReason;
   found: number;
   requested: number;
@@ -680,7 +648,7 @@ export async function runScoutDiscovery(options: ScoutRunOptions): Promise<Scout
     };
   }
 
-  const qualifiedChannels: ChannelRecord[] = [];
+  const qualifiedChannels: ScoutPipelineChannel[] = [];
   let keywordsSearched = 0;
 
   for (const keyword of keywords) {
@@ -698,7 +666,7 @@ export async function runScoutDiscovery(options: ScoutRunOptions): Promise<Scout
       };
     }
 
-    let batch: ChannelRecord[];
+    let batch: ScoutPipelineChannel[];
     try {
       batch = await discoverChannelsForKeyword(keyword, options.filters);
     } catch (e) {
