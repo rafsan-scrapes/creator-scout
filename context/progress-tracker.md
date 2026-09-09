@@ -9,11 +9,14 @@ so the next session doesn't have to rediscover it.
 
 ## Current Phase
 
-- Phase 7
+- Phase 8
 
 ## Current Goal
 
-- Phase 7 — Docs and verification (Phase 6 multi-key complete 2026-09-09)
+- Phase 8 — History tab + manual channel exclusion (Phase 7 automated
+  checks complete 2026-09-09; Phase 7 step 4, the manual live-key
+  pass, is being done directly by the user, not an agent — see
+  Session Notes)
 
 ## Completed
 
@@ -27,10 +30,15 @@ so the next session doesn't have to rediscover it.
 - Phase 6 steps 2–3 — Settings page multi-key textarea (`youtubeApiKeys`, one per line / comma-separated) + `.env.example` `YOUTUBE_API_KEYS` — done (2026-09-09) (Phase 6.1 C1 re-audited: single `Textarea` → `youtubeApiKeys`, `Configured · N keys` badge, `WebkitTextSecurity` toggle, `npm run check` passes, zero Gemini fields)
 - Phase 6.1 — Full-Codebase Audit — Fix-List Before Phase 7 (added 2026-09-09) (completed 2026-09-09)
 - Phase 6 — Multi-key Settings — complete (2026-09-09)
+- Phase 7 steps 1-3 — README/HANDOFF rewrite + `npm test`/`npm run
+  check`/`npm run build` all passing — complete (2026-09-09, verified
+  directly by user's own terminal output, not by an agent)
 
 ## In Progress
 
-— Phase 7 (docs + verification)
+— Phase 7 step 4 (manual live-key pass — user is doing this
+  themselves; not an agent task, no action needed here)
+— Phase 8 (History tab + manual channel exclusion)
 
 ## Next Up
 
@@ -94,10 +102,15 @@ commenting out code — this is a hard pivot, not a feature flag.
      `days_since_last_upload`, `matched_keyword`, `qualified`
      (boolean — did it pass all filters when evaluated),
      `first_seen_at`.
+     **[SUPERSEDED 2026-09-10 by Phase 8 step 1 — this schema
+     is simplified down to `channel_id`, `channel_url`,
+     `channel_name`, `source`, `matched_keyword`, `added_at`.
+     This description is kept for history; implement Phase 8's
+     version, not this one, if building fresh.]**
    - `api_key_usage`: `key_label`, `date` (YYYY-MM-DD,
      Pacific Time — YouTube's quota resets at midnight
      Pacific), `units_used`. One row per key per day,
-     incremented as calls are made.
+     incremented as calls are made. (Unaffected by Phase 8.)
 3. Write small helper functions: `isChannelKnown(channelId)`,
    `recordChannel(...)`, `getUsageToday(keyLabel)`,
    `addUsage(keyLabel, units)`.
@@ -379,26 +392,168 @@ where they still fit).
    required, not optional").
 3. Run `npm test`, `npm run check`, `npm run build` and fix
    whatever the strip-down left broken. All three must pass
-   before considering the rework done.
+   before considering the rework done. [DONE 2026-09-09 — user
+   ran these directly; 3 unrelated `npm audit` advisories were
+   fixed via `npm audit fix`, all 28 tests passed, `tsc` and the
+   production build were both clean.]
 4. Do one manual pass with real (rate-limited) YouTube keys to
    confirm the end-to-end flow actually returns and displays
    results, and that the dedup skip works on a second run with
-   the same keywords.
+   the same keywords. [Being done directly by the user, not an
+   agent — see Session Notes. An agent should not attempt this
+   step or ask for live API keys.]
 
-## Open Questions — Resolved 2026-09-09
+### Phase 8 — History tab + manual channel exclusion
 
-- [RESOLVED: no history UI] Completed/failed runs are NOT visible anywhere —
-  the results table is ephemeral per-run with no history view. `project-overview.md`
-  assumption confirmed correct. DB retains data only for dedup, not for browsing.
+This phase reverses part of the "no history UI" decision recorded
+under Open Questions below: the exclusion list now has a visible tab
+instead of being purely internal. It does **not** reopen full
+run-history browsing (see `project-overview.md` Scope) — only a flat,
+current list of excluded channels.
+
+1. **Simplify the `channels` table schema in `server/db.ts`.**
+   Replace the current columns with: `channel_id` (primary key),
+   `channel_url`, `channel_name` (nullable, best-effort),
+   `source` (`'search'` or `'manual'`, `CHECK` constraint),
+   `matched_keyword` (nullable — only ever set when
+   `source = 'search'`), `added_at`. Drop `subscriber_count`,
+   `avg_views`, `engagement_rate_pct`, `last_upload_date`,
+   `days_since_last_upload`, and `qualified` — those metrics were
+   only ever needed for a single run's Results table (already
+   ephemeral, never persisted past the response) and add nothing
+   to the exclusion purpose this table actually serves.
+   Recreate the table rather than writing a data migration — as of
+   this rework no live scout run has produced real accumulated
+   history yet (Phase 7 step 4 was still pending when this phase
+   started), so a clean recreate is simpler and safer than migrating
+   in place. If you discover real history rows already exist when
+   you get here, stop and flag it in Session Notes instead of
+   silently dropping them.
+2. **Keep recording every search-found channel, qualified or not.**
+   This is the behavior the user is describing as unchanged — a
+   channel that was searched and rejected must still never be
+   re-fetched. Update `recordChannel` (or replace it with a
+   simplified `recordSearchChannel(channelId, channelName,
+   channelUrl, matchedKeyword)`) to only write the new minimal
+   columns with `source = 'search'`. Update every call site in
+   `server/youtube.ts` (`discoverChannelsForKeyword` and friends)
+   accordingly — the qualify/disqualify *logic* during a run doesn't
+   change, only what gets persisted afterward.
+3. **Add `addManualChannel(channelId, channelUrl, channelName)`** to
+   `server/db.ts`, writing `source = 'manual'`, `matched_keyword =
+   null`, `added_at = now`. Should no-op safely (return "already
+   exists") if the channel ID is already present — never throw a
+   raw DB constraint error up to the route handler.
+4. **Add `listHistory()`** to `server/db.ts` — returns all rows
+   ordered by `added_at` descending, for the History tab.
+5. **Add a channel-identifier resolver** (new file, e.g.
+   `server/channel-resolver.ts`, or functions added to
+   `server/youtube.ts`) that turns whatever the user pastes into a
+   canonical `{ channelId, channelUrl, channelName }`:
+   a. If the input is already a bare channel ID (`UC` followed by 22
+      characters) or a `/channel/UC...` URL, extract the ID directly
+      — no resolution call needed for parsing — but still call
+      `channels.list?id=...` (1 unit) to confirm the ID is real and
+      to fetch its current display name, so a mistyped ID doesn't
+      silently sit in history.
+   b. If the input is an `@handle` URL or bare `@handle`, call
+      `channels.list?forHandle=...` (1 unit).
+   c. If the input is a legacy `/user/Username` URL, call
+      `channels.list?forUsername=...` (1 unit).
+   d. If the input is a legacy `/c/CustomName` URL (not reliably
+      resolvable via `channels.list`), fall back to
+      `search.list?type=channel&q=CustomName` (100 units) and take
+      the top match. This path is far more expensive than the
+      others — surface that to the user in the client (e.g. a
+      one-line note under the input) rather than silently spending
+      100 units on a paste.
+   e. Every one of these calls must go through the existing
+      `fetchYouTubeJsonWithQuota` / `pickAvailableKey` /
+      `addUsage` machinery from Phase 3 — a manual add is a real,
+      billable YouTube API call and must participate in the same
+      quota tracking and key rotation as a scout run, not a separate
+      path.
+   f. Before making any resolution call, check `isChannelKnown` on
+      whatever channel ID you can already extract without an API
+      call (case a). If it's already known, skip the API call
+      entirely and return "already in history" — this is the one
+      case where we can save quota on a duplicate add before
+      resolving anything.
+6. **Add `POST /api/history/manual-add`** to `server/routes.ts` —
+   body `{ input: string }`. Validate non-empty/bounded length,
+   resolve via step 5, check `isChannelKnown` again after resolution
+   (covers the handle/username/custom-URL cases where the ID wasn't
+   knowable up front), call `addManualChannel` if new, and return
+   either the added record or a specific, user-readable error
+   (invalid format, channel not found, quota exhausted while
+   resolving). Reuse the existing rate-limiter pattern from
+   `POST /api/scout` (this route makes real API calls too).
+7. **Add `GET /api/history`** to `server/routes.ts` — returns
+   `listHistory()` for the History tab table. Set `Cache-Control:
+   no-store` (same reasoning as Phase 6.1 W5 — this reflects live,
+   mutable state).
+8. **Add `client/src/pages/history.tsx`** — an input field + "Add"
+   button (disabled + spinner while the add request is in flight,
+   since it's a real network call, not instant validation) above a
+   table listing every row from `GET /api/history` (Channel Name
+   linked to its URL, a "Found via search" / "Manually added" badge,
+   Matched Keyword when present, Added date). Show inline feedback
+   for each outcome: added, already-in-history, or resolution error
+   — including the "this costs more quota" note for the `/c/` legacy
+   path described in step 5d.
+9. **Wire up navigation.** Add a "History" entry to
+   `client/src/components/app-sidebar.tsx` and a route in
+   `client/src/App.tsx`, alongside Scout and Settings.
+10. **Tests.** Add mocked-`fetch` unit tests (no live calls, same
+    standing rule as always) for: each branch of the identifier
+    resolver in step 5, `addManualChannel` duplicate handling,
+    `GET /api/history`, and `POST /api/history/manual-add` (valid
+    add, duplicate, invalid input, resolution failure, quota
+    exhausted mid-resolution).
+11. **Update docs.** In `README.md` and `HANDOFF.md`, add the
+    History tab to the product description and correct the line
+    (added in Phase 7) that said there's no history UI — it should
+    now say the History tab shows the flat exclusion list, not a
+    per-run log (see `project-overview.md` Scope for the exact
+    wording to match).
+12. Run `npm test`, `npm run check`, `npm run build` again — same
+    gate as Phase 7 step 3. An agent should stop here; the
+    equivalent of Phase 7 step 4 for this feature (pasting a real
+    channel link with live keys and confirming it's excluded from
+    the next scout run) is being done directly by the user, per
+    their standing preference — an agent should not attempt it or
+    ask for live keys.
+
+## Open Questions
+
+- [SUPERSEDED 2026-09-10, was RESOLVED 2026-09-09: no history UI] The
+  2026-09-09 resolution — "no history view, DB retains data only for
+  dedup, not for browsing" — is **partially reversed** as of Phase 8:
+  the app now has a History tab showing the flat list of excluded
+  channels (search-found and manually-added). What's still true from
+  the original resolution: there is no per-*run* browsing (no "what
+  did keyword X find on Tuesday" log) — see `project-overview.md`
+  Scope for the exact boundary.
 - [RESOLVED: 50 keywords max] Practical cap is **50 keywords per run** (not 25).
   `SCOUT_KEYWORD_LIMIT` must be raised from 25 to 50 in `shared/schema.ts` (and
   surfaced in the Scout form hint/counter — see Phase 6.1 C2). This is a quota guard.
 - [RESOLVED: keep name] Repo/product stays **"YouTube Pro"** — no rename.
+- **[OPEN as of Phase 8]** Should a History entry be removable/
+  undoable once added? Not requested by the user — Phase 8 as
+  specified is add-only, no delete route or UI. Flagging so it isn't
+  silently assumed either way; ask before building it.
+- **[OPEN as of Phase 8]** The `/c/CustomName` legacy-URL resolution
+  fallback (Phase 8 step 5d) costs 100 units per attempt, same as a
+  full keyword search. If this comes up often in practice, worth
+  revisiting whether it's worth supporting at all versus telling the
+  user to find the channel's `/channel/UC...` or `@handle` link
+  instead. No action needed unless the user raises it.
 
 > Previous open-question text preserved below for context:
 > - Should completed/failed runs be visible anywhere in the UI
 >   (e.g. "last run: 8 found"), or is the results table
->   ephemeral per-run with no history view?
+>   ephemeral per-run with no history view? → Reopened and partially
+>   reversed in Phase 8; see above.
 > - Is there a practical cap on how many keywords a single run
 >   should accept? → 50.
 > - Confirm whether the user wants the repo/product renamed → kept as-is.
@@ -459,6 +614,33 @@ where they still fit).
   (`https://router.bynara.id/v1`, OpenAI-Chat-Completions-
   compatible, `sk-nry-...` Bearer key) and not Gemini — this
   is documented for the future, not implemented now.
+- **[Phase 8] History table stores only identity fields, not
+  metrics.** User asked "only keeping the channel links should
+  be enough tho right?" — the answer is: for *display*, yes;
+  for *reliably matching a manually-pasted channel against
+  future search results*, no — a `/c/CustomName` or `@handle`
+  URL can change over time, so it must be resolved to YouTube's
+  permanent channel ID once, at add time, rather than
+  re-resolved every future run. The table keeps `channel_id` as
+  the real matching key and `channel_url`/`channel_name` for
+  human display, but drops all per-run metrics (subscriber
+  count, avg views, engagement rate, upload recency) — those
+  only ever described a moment in time for that run's Results
+  table and were never needed for exclusion.
+- **[Phase 8] Manual add always resolves through a real,
+  quota-counted YouTube API call, never a raw string match.**
+  Rationale: without resolving to a channel ID, a manually-added
+  entry could fail to match the same channel found later by
+  search under a different URL, silently defeating the whole
+  point of adding it. The one exception is a duplicate add of an
+  already-known ID, which is checked before any API call and
+  costs zero quota.
+- **[Phase 8] History UI is a flat, current exclusion list —
+  not per-run browsing.** This is a deliberate, narrower reversal
+  of the 2026-09-09 "no history UI" resolution (see Open
+  Questions): the user asked to see and manage *which channels
+  are excluded*, not to browse *what each past run found*. Keep
+  this distinction — don't build run-level history unless asked.
 
 - **Open questions resolved 2026-09-09:** (a) No history UI — results table is ephemeral per-run, DB retained only for dedup; (b) Keyword cap is **50** (`SCOUT_KEYWORD_LIMIT = 50`), surfaced as `{count}/50` in the Scout form; (c) Product keeps the name **YouTube Pro**.
 
@@ -507,3 +689,5 @@ where they still fit).
 - 2026-09-09 — Phase 6 step 1 done: `server/settings.ts` now stores `YOUTUBE_API_KEYS` (comma-separated, rotation order = list order) with `YOUTUBE_API_KEY` single-key fallback. `SUPPORTED_KEYS` includes both vars, `ApiKeySettings` / `apiKeySettingsSchema` accept `youtubeApiKey?` (legacy) and `youtubeApiKeys?` (string up to 8192 or string[] up to 25, strict). Helpers `getYouTubeApiKeysFromEnv()`, `getApiKeyStatus() -> { youtube, youtubeKeyCount }`, `parseYouTubeKeysInput` (splits on `[,\\n]+`, trims), `validateYouTubeKeys` (8–512 chars, dedup preserving order with `Set`), `setEnvValue`, `saveApiKeySettings` (validates, dedupes, joins with `,`, atomic `writeFile(.env.tmp, 0o600)` + `rename` + `chmod 0o600`, syncs `process.env.YOUTUBE_API_KEYS` and `process.env.YOUTUBE_API_KEY` fallback). `.env.example` already updated (commented `YOUTUBE_API_KEYS=` + `# YOUTUBE_API_KEY=`). `server/youtube.ts` already consumed via `getYouTubeApiKeys()` with fallback — no change needed there. `client/src/pages/settings.tsx` NOT yet updated (see Phase 6.1 C1) — step 2 remains.
 - 2026-09-09 — Phase 6.1 full-codebase audit: read every load-bearing file (`server/*`, `shared/*`, `client/src/**/*`, `package.json`, `.env.example`, `vite.config.ts`, `tsconfig.json`, `script/build.ts`, `README.md`, `HANDOFF.md`) plus grep for `gemini|evidence|workflow-context` and glob checks. Findings written into this file as § Phase 6.1 (CRITICAL C1–C7, WARNING W1–W11, INFO I1–I10) — do those in order before Phase 7. Key outcomes: Open Questions resolved (no history UI, 50-keyword cap, keep "YouTube Pro" name) and folded into Architecture Decisions; `SCOUT_KEYWORD_LIMIT` must go 25→50 (C2); Settings page is contract-broken and must be rewritten (C1); legacy `GET /api/youtube/search` + `searchVideos` must be removed (C3–C4); `security-contracts.test.ts` + `research-contracts.test.ts` have dangling imports that break `npm test` despite `tsc` exclude (C5, C7); `youtube.test.ts` covers only deleted path (C6); plus W/I nits (18 MB JSON, `gemini` type, Replit leftovers, `no-store` on Scout, quoting, regex `\\s` typo, dead CSS).
 - 2026-09-09 — Phase 6.1 C1 fixed: rewrote `client/src/pages/settings.tsx` to match `server/settings.ts` multi-key contract. Now single `Textarea` (one per line or comma-separated → `youtubeApiKeys`), local count badge `Configured · N keys`, eye toggle via `WebkitTextSecurity: disc`, send only `{ youtubeApiKeys: raw }`. Removed every Gemini field / `ModelOption` / `Select` / `gemini*` state/ref. `ApiKeyStatus` now `{ youtube, youtubeKeyCount }` with defensive cast on status fetch. `npm run check` passes (exit 0).
+- 2026-09-09 — Phase 7 steps 1-3 confirmed via the user's own terminal output (not run by an agent): `npm audit` found 3 advisories (browserslist high, postcss-selector-parser high, qs moderate) all with `npm audit fix` available and none touching runtime YouTube/DB code paths; `npm audit fix` resolved all 3 with 0 remaining. `npm run check` (`tsc`) — clean. `npm test` — 28/28 passing across 8 suites (Settings loopback/strict, Scout request/response contracts, `chunkArray`, `computeChannelMetrics`, multi-key rotation, YouTube provider error categories, Scout pipeline incl. quota-exhausted-mid-run and already-known-skip). `npm run build` — client + server both built clean. `npm run dev` initially failed on Windows/PowerShell because the `dev` script uses Unix-style inline `NODE_ENV=development ...`, which PowerShell/cmd.exe don't support — recommended fix is `cross-env` (`npm install --save-dev cross-env`, update the `dev` script to `cross-env NODE_ENV=development tsx server/index.ts`). Phase 7 step 4 (manual live-key pass, confirming dedup on a second run) is being done directly by the user per their stated preference, not delegated to an agent — no agent action needed for it, and none should be attempted (don't request live API keys).
+- 2026-09-10 — Phase 8 opened per user request: two changes — (1) architectural: expose the existing dedup mechanism as a visible History tab (previously internal-only, per the 2026-09-09 "no history UI" resolution — see Open Questions for the reversal), with the `channels` table schema simplified to identity-only fields; (2) feature: a one-at-a-time manual-add field on that tab so the user can exclude a known channel without searching for it. See Phase 8 in Next Up for the full step-by-step, and the two new Architecture Decisions entries above for the reasoning on "why not just store the raw link" and "why every add still costs an API call."

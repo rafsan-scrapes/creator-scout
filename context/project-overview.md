@@ -61,6 +61,11 @@ original repository and removes everything unrelated to this one job.
    requested.
 8. On the next run, any channel already in the local database is
    skipped automatically — it will never be re-fetched or re-shown.
+9. A separate **History** tab lists every channel the app currently
+   excludes from future searches — whether it was found by a past
+   search or added manually. From that tab, the user can paste a
+   single channel link into a field and click "Add" to exclude a
+   channel they already know about, without ever searching for it.
 
 ## Features
 
@@ -85,16 +90,40 @@ original repository and removes everything unrelated to this one job.
   cleanly and returns whatever channels were already found, with a
   clear status message — it never crashes or returns nothing.
 
-### Persistent Dedup Database
+### Persistent Exclusion History
 
-- Every channel the app has ever evaluated (whether it qualified or
-  was filtered out) is stored locally in SQLite.
-- Future runs never re-fetch a channel already in the database,
+- Every channel the app has ever evaluated via search (whether it
+  qualified or was filtered out), plus every channel manually added
+  by the user, is stored locally in SQLite, keyed by YouTube's stable
+  channel ID.
+- Future runs never re-fetch a channel already in this history,
   regardless of keyword — this is the main quota-saving mechanism.
+- Only minimal fields are kept per entry (channel ID, link, name,
+  how it was added, and — for search-found entries — which keyword
+  matched it). Full metrics (subscriber count, avg views, engagement
+  rate, upload recency) are computed fresh for display during a run
+  and are not persisted — they'd only ever describe a moment in time
+  and aren't needed for exclusion.
+
+### History Tab & Manual Exclusions
+
+- A dedicated History tab shows every excluded channel: name (linked
+  to the channel), how it was added ("Found via search" / "Manually
+  added"), the matched keyword when applicable, and the date added.
+- A single input field plus an "Add" button lets the user paste one
+  channel link (or `@handle`) at a time to exclude a channel they
+  already know about but haven't searched for. The app resolves the
+  link to YouTube's canonical channel ID before storing it, so it
+  reliably matches that channel in future searches even if its
+  handle or display name changes later.
+- Adding a channel already in the history is a no-op that tells the
+  user it's already excluded — it never spends API quota on a
+  duplicate.
 
 ### Results Display
 
-- A single results table on the page (no CSV, no download step).
+- A single results table on the page per run (no CSV, no download
+  step, not persisted between runs).
 - Sortable/scrollable list of qualifying creators with all computed
   fields visible.
 
@@ -128,9 +157,14 @@ the removal order:
   filter set and multi-key rotation.
 - Adding a SQLite-backed persistence layer for discovered channels and
   per-key quota usage.
-- Rebuilding the client into a single scout form + results table page.
+- Rebuilding the client into a single scout form + results table page,
+  plus a second History tab for viewing and manually adding excluded
+  channels.
 - Extending Settings to manage a list of YouTube API keys instead of
   one.
+- Simplifying the channel-history schema to minimal fields (ID, link,
+  name, source, matched keyword, added date) and adding a `source`
+  field distinguishing search-found from manually-added entries.
 - Removing all Gemini/AI, script, thumbnail, and multi-workflow code
   and UI.
 - Updating README/HANDOFF-style docs to reflect the new product.
@@ -144,9 +178,14 @@ the removal order:
 - User accounts, authentication, or multi-user support (stays
   local-first/loopback, same as the original).
 - Deploying this remotely or exposing it to the internet.
-- Historical run browsing/saved workflows UI (the DB retains data, but
-  there's no UI requirement to browse past runs — the value is purely
-  "don't re-show channels already seen").
+- Browsing past *runs* as distinct sessions (e.g. "what did keyword
+  X find on Tuesday") — the History tab lists the current flat set
+  of excluded channels, not a per-run log. This narrows, but does
+  not remove, the original "no history UI" decision — see
+  `progress-tracker.md` Architecture Decisions for the full
+  reasoning on what changed and why.
+- Removing/undoing a History entry once added (open question — see
+  `progress-tracker.md`).
 
 ## Success Criteria
 
@@ -166,3 +205,11 @@ the removal order:
    creator, or multi-step workflow sidebar remains in the codebase.
 7. `npm run check`, `npm test`, and `npm run build` all pass against
    the reworked codebase.
+8. Pasting a channel link into the History tab and clicking Add
+   excludes that channel from all future scout runs, even though it
+   was never returned by a search.
+9. The History tab correctly labels each entry as "Found via search"
+   or "Manually added", and search-found entries show their matched
+   keyword.
+10. Adding a channel that's already in the history returns a clear
+    "already excluded" response and spends no additional API quota.
