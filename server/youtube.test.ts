@@ -108,6 +108,17 @@ describe("multi-key rotation", () => {
     assert.deepEqual(getYouTubeApiKeys(), ["a", "b"]);
   });
 
+  test("getYouTubeApiKeys tolerates quoted YOUTUBE_API_KEYS from .env", () => {
+    process.env.YOUTUBE_API_KEYS = '"k1,k2"';
+    assert.deepEqual(getYouTubeApiKeys(), ["k1", "k2"]);
+    process.env.YOUTUBE_API_KEYS = '"  k1 , k2  "';
+    assert.deepEqual(getYouTubeApiKeys(), ["k1", "k2"]);
+    setKeys([]);
+    process.env.YOUTUBE_API_KEY = '"solo"';
+    assert.deepEqual(getYouTubeApiKeys(), ["solo"]);
+    setKeys([]);
+  });
+
   test("pickAvailableKey skips exhausted and over-quota keys", async () => {
     setKeys(["k1", "k2", "k3"]);
     for (let i = 0; i < 3; i++) db.setUsageToday(getKeyLabel(i), 0);

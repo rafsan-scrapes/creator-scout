@@ -308,19 +308,19 @@ where they still fit).
   Comment says "Three prepared thumbnail references may contain up to 12 MB..." — Scout payloads
   are < 256 kB JSON. Keeping 18 MB widens DoS surface. Lower to `64kb` (or `256kb` max) and
   delete stale comment. `express.urlencoded { limit: "64kb" }` is already tight — JSON should match.
-- **W3 — `server/provider-errors.ts:26` type still carries `gemini`.**
+- **[DONE 2026-09-09] W3 — `server/provider-errors.ts:26` type still carries `gemini`.**
   `type ProviderErrorContext = "youtube" | "gemini"` — spec says no Gemini, future AI via
   NaraRouter (`sk-nry-...`). Change to `"youtube"` (or `"youtube" | "nara"` if a placeholder is wanted)
   and update `invalid_response` suggestion which still says "choose another supported model".
-- **W4 — `vite.config.ts` + `server/vite.ts` Replit leftovers & permissive hosts.**
+- **[DONE 2026-09-09] W4 (W4 already folded into W1 (vite allowedHosts/Replit)) — `vite.config.ts` + `server/vite.ts` Replit leftovers & permissive hosts.**
   `vite.config.ts` imports `runtimeErrorOverlay` from `@replit/...`, conditionally loads
   `cartographer`/`devBanner` on `REPL_ID`, aliases `"@assets" -> attached_assets` (deleted).
   `server/vite.ts:16` uses `allowedHosts: true`. For local-only Scout either remove Replit block
   or gate it, and set `allowedHosts` to `["127.0.0.1","localhost","::1"]` or omit.
-- **W5 — Scout response missing `Cache-Control: no-store`.**
+- **[DONE 2026-09-09] W5 — Scout response missing `Cache-Control: no-store`.**
   Settings routes set `no-store` correctly; `POST /api/scout` (billable, dedup-sensitive) does not.
   Add `res.setHeader("Cache-Control", "no-store")` there as well.
-- **W6 — `server/settings.ts:182-195` `.env` writer quoting vs reader splitting.**
+- **[DONE 2026-09-09] W6 — `server/settings.ts:182-195` `.env` writer quoting vs reader splitting.**
   `setEnvValue` stores `YOUTUBE_API_KEYS="key1,key2"` via `JSON.stringify`; reader splits on `,`
   relying on `loadEnvFile` to strip quotes (Node 22 does). Add explicit guard on read
   (`value.replace(/^"|"$/g, "")` before split) or write without `JSON.stringify`, and add a test.

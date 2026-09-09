@@ -23,7 +23,7 @@ export class ProviderError extends Error {
   }
 }
 
-type ProviderErrorContext = "youtube" | "gemini";
+type ProviderErrorContext = "youtube";
 
 function categoryFromMessage(message: string): ProviderErrorCategory {
   const normalized = message.toLowerCase();
@@ -108,7 +108,7 @@ export function providerErrorPayload(error: ProviderError, contextLabel: string)
     },
     invalid_response: {
       error: `${contextLabel} returned an invalid response`,
-      suggestion: "Retry once. If it continues, choose another supported model or report the response contract failure.",
+      suggestion: "Retry once. If it continues, check the server logs for the provider response details.",
     },
     unknown: {
       error: `${contextLabel} encountered an issue`,

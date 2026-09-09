@@ -42,6 +42,7 @@ export async function registerRoutes(
 
   // Step 2: Scout discovery — single synchronous response (Phase 4 step 3 defers to single response).
   app.post("/api/scout", scoutRateLimit, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     try {
       const parsed = scoutRequestSchema.parse(req.body);
 

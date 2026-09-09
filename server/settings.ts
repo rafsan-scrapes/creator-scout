@@ -112,12 +112,22 @@ export function isLocalSettingsRequest(req: Request): boolean {
 // ---------------------------------------------------------------------------
 
 export function getYouTubeApiKeysFromEnv(): string[] {
-  const multi = process.env.YOUTUBE_API_KEYS?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (multi && multi.length > 0) return multi;
-  const single = process.env.YOUTUBE_API_KEY?.trim();
-  if (single) return [single];
+  const raw = process.env.YOUTUBE_API_KEYS;
+  if (raw !== undefined) {
+    const trimmed = raw.trim();
+    const unwrapped = trimmed.length >= 2 && trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"'
+      ? trimmed.slice(1, -1)
+      : trimmed;
+    const multi = unwrapped.split(",").map((s) => s.trim()).filter(Boolean);
+    if (multi.length > 0) return multi;
+  }
+  const singleRaw = process.env.YOUTUBE_API_KEY?.trim();
+  const singleTrimmed = singleRaw !== undefined
+    ? (singleRaw.length >= 2 && singleRaw[0] === '"' && singleRaw[singleRaw.length - 1] === '"'
+      ? singleRaw.slice(1, -1).trim()
+      : singleRaw)
+    : undefined;
+  if (singleTrimmed) return [singleTrimmed];
   return [];
 }
 
