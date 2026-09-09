@@ -27,7 +27,7 @@ YouTube Pro is an independent project. It is not affiliated with, endorsed by, o
 
 1. **Open the app** — single page, no multi-step workflow and no sidebar of saved workflows.
 2. **Fill the form:**
-   - Keywords — one per line or comma-separated (sane cap applied in the form, e.g. 25)
+   - Keywords — one per line or comma-separated (cap 50 per run)
    - Minimum subscribers
    - Maximum subscribers
    - Maximum days since last upload
@@ -88,7 +88,7 @@ This ordering is the main quota saving: `playlistItems.list` (1 unit) is used fo
 
 ## Data and request limits
 
-- Keywords: at least 1 keyword per run; form caps at a sane maximum (e.g. 25) to avoid accidental quota-draining runs.
+- Keywords: 1–50 per run; form caps at 50 to avoid accidental quota-draining runs.
 - Filters: subscriber min/max must be non-negative integers (`min <= max` when both set); `maxDaysSinceUpload`, `minAvgViews`, and `targetCount` are positive integers; `minEngagementRate` is an optional percentage.
 - Recent-video sample: up to 10 most recent uploads per channel; fewer if the channel has fewer public videos.
 - Engagement rate: derived, not a native API field; `null` when no sampled video has a usable `viewCount`.

@@ -1,14 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { searchVideos } from "./youtube";
 import { runScoutDiscovery } from "./youtube";
-import { searchFiltersSchema, scoutRequestSchema } from "@shared/schema";
+import { scoutRequestSchema } from "@shared/schema";
 import { z } from "zod";
 import { apiKeySettingsSchema, getApiKeyStatus, isLocalSettingsRequest, saveApiKeySettings } from "./settings";
 import { normalizeProviderError, providerErrorPayload } from "./provider-errors";
 import { createRateLimiter } from "./rate-limit";
 
-const { middleware: rateLimit } = createRateLimiter();
 const { middleware: scoutRateLimit } = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 
 export async function registerRoutes(
@@ -85,33 +83,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/youtube/search", rateLimit, async (req, res) => {
-    try {
-      const { query, uploadDate, duration, sortBy, maxResults } = req.query;
-
-      if (!query || typeof query !== "string") {
-        return res.status(400).json({ error: "Query parameter is required" });
-      }
-
-      const filters = searchFiltersSchema.parse({
-        query,
-        uploadDate: uploadDate || "any",
-        duration: duration || "any",
-        sortBy: sortBy || "relevance",
-        maxResults: maxResults ? parseInt(maxResults as string, 10) : 25,
-      });
-
-      const result = await searchVideos(filters);
-      res.json(result);
-    } catch (error: any) {
-      console.error("YouTube search error:", error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid search parameters", details: error.errors });
-      }
-      const providerError = normalizeProviderError(error, "youtube");
-      res.status(providerError.status).json(providerErrorPayload(providerError, "YouTube Data API"));
-    }
-  });
 
   return httpServer;
 }

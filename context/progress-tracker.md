@@ -13,7 +13,7 @@ so the next session doesn't have to rediscover it.
 
 ## Current Goal
 
-- Phase 6 : second step
+- Phase 6.1 : C1–C3 done; remaining C4–C7 + W/I before Phase 7
 
 ## Completed
 
@@ -23,10 +23,14 @@ so the next session doesn't have to rediscover it.
 - Phase 3 — Rework the YouTube service (2026-09-08) — steps 1-4 complete (see Session Notes)
 - Phase 4
 - Phase 5
+- Phase 6 step 1 — server/settings.ts multi-key store (YOUTUBE_API_KEYS comma-separated) — done (2026-09-09)
+- Phase 6.1 C1 — Settings page rewrite to multi-key contract — done (2026-09-09) (`npm run check` passes)
+- Phase 6.1 C2 — `SCOUT_KEYWORD_LIMIT` 25→50 + README caps updated — done (2026-09-09)
+- Phase 6.1 C3 — legacy `GET /api/youtube/search` removed from `server/routes.ts` — done (2026-09-09) (`npm run check` passes)
 
 ## In Progress
 
-— Phase 6
+— Phase 6 (steps 2–3 + Phase 6.1 audit fix-list)
 
 ## Next Up
 
@@ -211,15 +215,152 @@ where they still fit).
 
 ### Phase 6 — Multi-key Settings
 
-1. Extend `server/settings.ts` to store a list of YouTube API
-   keys instead of a single `YOUTUBE_API_KEY` (e.g. a
-   `YOUTUBE_API_KEYS` env var, comma-separated, following the
-   same owner-only `.env`-write and never-return-to-browser
-   pattern the original Settings already uses).
+1. [DONE 2026-09-09] Extend `server/settings.ts` to store a list of YouTube API
+   keys instead of a single `YOUTUBE_API_KEY` (`YOUTUBE_API_KEYS` env var,
+   comma-separated, `YOUTUBE_API_KEY` kept as single-key fallback). Follows the
+   same owner-only `.env`-write (`0o600` + `chmod` + atomic `rename`) and
+   never-return-to-browser pattern the original Settings already uses. Helpers:
+   `getYouTubeApiKeysFromEnv()`, `parseYouTubeKeysInput`, `validateYouTubeKeys`,
+   `getApiKeyStatus() -> { youtube, youtubeKeyCount }`.
 2. Update the Settings page UI to let the user enter multiple
-   keys (e.g. one per line), matching the existing form
-   patterns already in `client/src/pages/settings.tsx`.
-3. Update `.env.example` accordingly.
+   keys (e.g. one per line / comma-separated textarea, maps to `youtubeApiKeys`),
+   matching the existing form patterns already in `client/src/pages/settings.tsx`.
+   Must remove all Gemini fields (see Phase 6.1 C1).
+3. Update `.env.example` accordingly. [DONE 2026-09-09 — already shows
+   `YOUTUBE_API_KEYS` + commented `YOUTUBE_API_KEY` fallback.]
+
+### Phase 6.1 — Full-Codebase Audit — Fix-List Before Phase 7 (added 2026-09-09)
+
+> Full read-all pass done 2026-09-09 across: `server/settings.ts`, `server/youtube.ts`,
+> `server/db.ts`, `server/routes.ts`, `shared/schema.ts`, `client/src/pages/scout.tsx`,
+> `client/src/pages/settings.tsx`, `client/src/App.tsx`, `client/src/components/app-sidebar.tsx`,
+> `client/index.html`, `server/index.ts`, `server/provider-errors.ts`, `server/rate-limit.ts`,
+> `server/vite.ts`, `server/static.ts`, `package.json`, `.env.example`, `.gitignore`,
+> `vite.config.ts`, `tsconfig.json`, `script/build.ts`, `README.md`, `HANDOFF.md`,
+> `client/src/**/*`, `server/**/*`. Do these in order; CRITICAL first. Check each item off
+> in this file as you fix it.
+
+#### CRITICAL — must fix before Phase 7 (blocks `npm test` / `npm run check` / Settings)
+
+- **[DONE 2026-09-09] C1 — `client/src/pages/settings.tsx` was contract-broken vs `server/settings.ts` + `server/routes.ts` — fixed: now multi-key textarea only.**
+  Server `GET /api/settings/status` returns `{ youtube: boolean, youtubeKeyCount: number }`
+  (`getApiKeyStatus()`); `PUT /api/settings/api-keys` accepts only `youtubeApiKey?` /
+  `youtubeApiKeys?` (strict schema). Client still declares `interface ApiKeyStatus { youtube, gemini, models: { text, image, textOptions, imageOptions } }`
+  and on submit sends `{ youtubeApiKey?, geminiApiKey?, geminiTextModel, geminiImageModel }`.
+  `strict()` rejects `gemini*` → every save is `400 Unrecognized key(s)`. Status fetch casts
+  to the stale type so `data.gemini`/`data.models` are `undefined` and `setGeminiTextModel(undefined)`
+  crashes the Select. **Fix:** rewrite `settings.tsx` to a single multi-key textarea
+  (one per line or comma-separated → `youtubeApiKeys`), show `youtubeKeyCount` / `Configured` badge,
+  remove every Gemini field, `ModelOption`, `Select`, `gemini*` state/ref, and community-card-adjacent
+  Gemini copy. Send only `{ youtubeApiKeys }` (or legacy `{ youtubeApiKey }` for one key).
+- **[DONE 2026-09-09] C2 — `shared/schema.ts:160` keyword limit 25→50 — fixed.**
+  `export const SCOUT_KEYWORD_LIMIT` now `50`. Schema uses
+  `z.array(...).max(SCOUT_KEYWORD_LIMIT)` and `client/src/pages/scout.tsx` surfaces the
+  constant in label/hint/validation — single-constant fix. `server/settings.ts` `youtubeApiKeys`
+  array `max(25)` is key-count, not keyword-count — leave it. After fix, update any doc that
+  says "e.g. 25" to 50.
+- **[DONE 2026-09-09] C3 — `server/routes.ts:88-114` legacy `GET /api/youtube/search` — removed.**
+  Single-purpose Scout has no search UI. Route still exposes unauthenticated, quota-uncounted
+  YouTube search via legacy `searchVideos` (see C4). Delete the handler and its imports
+  `searchVideos`, `searchFiltersSchema`, and the `rateLimit` (`createRateLimiter().middleware`)
+  instance if nothing else uses it. The Phase 1 comment on line 43 already says routes were removed
+  — finish the job.
+- **C4 — `server/youtube.ts:820-1095` legacy `searchVideos` bypasses quota rotation & metering.**
+  `const apiKey = process.env.YOUTUBE_API_KEY?.trim() || getYouTubeApiKeys()[0]` + direct
+  `fetchYouTubeJson(searchUrl, "search")` — no `pickAvailableKey`/`addUsage`/`setUsageToday`, no
+  sentinel. While `GET /api/youtube/search` exists this is a 100-unit quota leak per call and
+  rotation never triggers. **Fix:** when C3 is done, delete `searchVideos` + `createSnapshotId` +
+  helpers `getPublishedAfter`/`getVideoDuration`/`getOrderBy` if unreferenced, or gate behind
+  a TODO if they are kept for reference. Keep Scout helpers
+  `fetchYouTubeJsonWithQuota` / `searchChannelIdsForKeyword` / `discoverChannelsForKeyword` /
+  `runScoutDiscovery` as the forward path.
+- **C5 — `server/security-contracts.test.ts` has dangling imports → `npm test` throws `ERR_MODULE_NOT_FOUND`.**
+  Imports `narrationExtractionRequestSchema`, `titleRegenerationRequestSchema` from
+  non-existent `./api-contracts` and `scriptInputSchema` from `@shared/schema` (deleted in Phase 1).
+  `tsconfig.json` `exclude: ["**/*.test.ts"]` hides this from `npm run check`, but
+  `npm test` (`tsx --test server/*.test.ts`) immediately fails. The `apiKeySettingsSchema`
+  assertion on line 46–47 (`geminiTextModel: "unknown-model"` should fail) now passes only
+  vacuously via `strict()`. **Fix:** replace file with Scout contracts: assert
+  `scoutRequestSchema`, `SCOUT_KEYWORD_LIMIT`, `scoutResponseSchema` bounds, keep
+  `isTrustedLocalSettingsMetadata` loopback/forwarded/origin checks, keep rate-limiter test.
+- **C6 — `server/youtube.test.ts` only exercises deleted legacy path; Scout pipeline has zero coverage.**
+  All 7 tests import `searchVideos`/`createSnapshotId` and mock single-key `YOUTUBE_API_KEY`.
+  No fixtures for `searchChannelIdsForKeyword`, `fetchChannelsBatch`, `discoverChannelsForKeyword`,
+  `runScoutDiscovery`, quota rotation, or `recordChannel` dedup. Phase 6 says no live quota spend
+  but fixture-based Scout tests are required. **Fix:** decide keep-or-delete; if kept, add mocked-`fetch`
+  tests for Scout helpers (or at minimum keep one `createSnapshotId` test if that helper stays).
+  As-is it gives false confidence.
+- **C7 — `shared/research-contracts.test.ts` imports deleted research contracts.**
+  Imports `researchInsightsRequestSchema` / `researchInsightsResponseSchema` (deleted with
+  `shared/evidence-contracts.ts`). Same `ERR_MODULE_NOT_FOUND` on `npm test` as C5 (hidden from
+  `tsc` by exclude). **Fix:** delete file or replace with Scout contract tests
+  (`scoutRequestSchema` `min<=max` superRefine, `scoutChannelSchema`, `scoutStopReasonSchema`).
+
+#### WARNING — should fix before Phase 7 (quality / security / bloat)
+
+- **W1 — `package.json` retains legacy deps.** `html2canvas`, `jspdf`, `recharts`, `framer-motion`,
+  `embla-carousel-react`, `vaul`, `react-resizable-panels`, `react-day-picker`, `input-otp`, `cmdk`
+  and Replit dev deps `@replit/vite-plugin-*` + `optionalDependencies: bufferutil` are unused by
+  Scout (`scout.tsx`/`settings.tsx` use only shadcn primitives + `lucide-react`). Remove them to
+  shrink `dist/public` and audit surface. Verify `@google/genai` is already gone (it is).
+- **W2 — `server/index.ts:30-37` JSON limit `18mb` is legacy thumbnail value.**
+  Comment says "Three prepared thumbnail references may contain up to 12 MB..." — Scout payloads
+  are < 256 kB JSON. Keeping 18 MB widens DoS surface. Lower to `64kb` (or `256kb` max) and
+  delete stale comment. `express.urlencoded { limit: "64kb" }` is already tight — JSON should match.
+- **W3 — `server/provider-errors.ts:26` type still carries `gemini`.**
+  `type ProviderErrorContext = "youtube" | "gemini"` — spec says no Gemini, future AI via
+  NaraRouter (`sk-nry-...`). Change to `"youtube"` (or `"youtube" | "nara"` if a placeholder is wanted)
+  and update `invalid_response` suggestion which still says "choose another supported model".
+- **W4 — `vite.config.ts` + `server/vite.ts` Replit leftovers & permissive hosts.**
+  `vite.config.ts` imports `runtimeErrorOverlay` from `@replit/...`, conditionally loads
+  `cartographer`/`devBanner` on `REPL_ID`, aliases `"@assets" -> attached_assets` (deleted).
+  `server/vite.ts:16` uses `allowedHosts: true`. For local-only Scout either remove Replit block
+  or gate it, and set `allowedHosts` to `["127.0.0.1","localhost","::1"]` or omit.
+- **W5 — Scout response missing `Cache-Control: no-store`.**
+  Settings routes set `no-store` correctly; `POST /api/scout` (billable, dedup-sensitive) does not.
+  Add `res.setHeader("Cache-Control", "no-store")` there as well.
+- **W6 — `server/settings.ts:182-195` `.env` writer quoting vs reader splitting.**
+  `setEnvValue` stores `YOUTUBE_API_KEYS="key1,key2"` via `JSON.stringify`; reader splits on `,`
+  relying on `loadEnvFile` to strip quotes (Node 22 does). Add explicit guard on read
+  (`value.replace(/^"|"$/g, "")` before split) or write without `JSON.stringify`, and add a test.
+- **W7 — `server/settings.ts:22-27` string vs array caps misaligned.**
+  `youtubeApiKeys` string cap `8192` vs array cap `25 * 512 + 24` — string cap is tighter.
+  Raise string cap to `16384` or document that paste-variance is via textarea (string) path.
+- **W8 — `server/youtube.ts:52` dead duplicate quota check.**
+  `if (used + cost > DAILY_QUOTA_UNITS) continue;` already covers `if (used >= DAILY_QUOTA_UNITS) continue;`
+  — second branch is dead. Remove it.
+- **W9 — `server/index.ts` `trust proxy` not explicitly disabled.**
+  Rate limiter keys on `req.ip || req.socket.remoteAddress`. If `HOST` is ever changed, spoofed
+  `X-Forwarded-For` could bypass limits. Add `app.set("trust proxy", false)` and a comment that
+  limiter is per-process local-only (README already warns not distributed).
+- **W10 — `server/settings.ts:57-91` `isTrustedLocalSettingsMetadata` host regex typo (I10).**
+  `if (/[@/\\s%]/.test(input.host))` — char class `\\s` is backslash-or-`s`, not whitespace.
+  Intended `/[@\/\s%]/`. Currently over-blocks hosts containing `s` and misses whitespace bypass.
+  Fix to `/[@\/%\s]/` or `/[@\/\s%]/`.
+- **W11 — `server/db.ts` no index on `matched_keyword` (minor).**
+  Not needed now; note only if keyword-scoped re-scout UX is added later.
+
+#### INFO / NITS — polish when convenient (not blocking)
+
+- **I1** `client/src/index.css:328-341` `ai-insights-glow` + `@keyframes ai-glow-pulse` are dead Research-era CSS (~1 kB). Remove.
+- **I2** `client/src/lib/queryClient.ts` `getQueryFn`/`queryClient` are instantiated but no `useQuery` remains in `scout.tsx` (only `apiRequest` is used by broken `settings.tsx`). Dead code — prune or keep for Phase 7.
+- **I3** `README.md:30` workflow step 3 says "progress streams as e.g. Searching keyword 2 of 5" but `POST /api/scout` is synchronous single response (Phase 4). Align doc to "Run Scout \u2014 synchronous response, status line shows `keywordsSearched` when done."
+- **I4** `README.md:30` / `README.md:91` say "e.g. 25" / "e.g. 25" — after C2 update to 50.
+- **I5** `.gitignore:9` `server/public` is stale (Vite outDir is `dist/public`). Keep or alias to `dist/`.
+- **I6** `client/src/pages/scout.tsx:368-370` `Button onClick={handleRun}` without `<form onSubmit>` — Enter on inputs does not submit. Wrap in `<form>` or add `onKeyDown` Enter handler for a11y.
+- **I7** `server/youtube.ts:76-78` startup `console.warn` fires on every import including tests. Gate behind `process.env.NODE_ENV !== "test"`.
+- **I8** `client/index.html:14` Google Fonts is the only external request; CSP in `server/index.ts:24` correctly allowlists `fonts.gstatic.com`/`fonts.googleapis.com` — good, no action.
+- **I9** `script/build.ts:7-11` allowlist `["date-fns","express","zod"]` bundles only those three; `better-sqlite3` is native and correctly externalized — good, no action.
+- **I10** `client/src/components/app-sidebar.tsx` `Play` logo `fill="currentColor"` is intentional — no action.
+
+> Checklist for the 10 audit questions: (1) multi-key `server/settings.ts` YES (I10 nit + W6 quoting only);
+> (2) client `settings.tsx` vs contract NO — CRITICAL C1; (3) `SCOUT_KEYWORD_LIMIT` NO — 25 vs 50 C2;
+> (4) `routes.ts` legacy `GET /api/youtube/search` YES still present C3; (5) `youtube.ts` `searchVideos`
+> single-key bypass YES C4; (6) `package.json` removed deps PARTIAL — `@google/genai` gone but canvas/pdf/chart remain W1;
+> (7) client pages vs deleted files no direct import crash but `settings.tsx` fields + `security-contracts.test.ts`
+> dangling imports C5; (8) mental `tsc` FAIL hidden by `exclude: ["**/*.test.ts"]` C5/C7; (9) security loopback solid
+> (I10/W10 nit), quota sentinel correct, rate limits `10/60s` on Scout, Scout response lacks `no-store` W5, JSON 18 MB W2;
+> (10) UX keyword limit surfaced but at 25 not 50, table columns match spec.
 
 ### Phase 7 — Docs and verification
 
@@ -239,22 +380,23 @@ where they still fit).
    results, and that the dedup skip works on a second run with
    the same keywords.
 
-## Open Questions
+## Open Questions — Resolved 2026-09-09
 
-- Should completed/failed runs be visible anywhere in the UI
-  (e.g. "last run: 8 found"), or is the results table
-  ephemeral per-run with no history view? Current assumption
-  in `project-overview.md` is no history UI — confirm this is
-  still correct once the form/results page is built.
-- Is there a practical cap on how many keywords a single run
-  should accept (to avoid a user accidentally queueing an
-  enormous, quota-draining run)? Not specified yet — consider
-  a sane default limit (e.g. 25 keywords) and surface it in
-  the form.
-- Confirm whether the user wants the repo/product renamed away
-  from "YouTube Pro" given the scope change, or kept as-is.
-  Not decided — default to keeping the existing name unless
-  told otherwise.
+- [RESOLVED: no history UI] Completed/failed runs are NOT visible anywhere —
+  the results table is ephemeral per-run with no history view. `project-overview.md`
+  assumption confirmed correct. DB retains data only for dedup, not for browsing.
+- [RESOLVED: 50 keywords max] Practical cap is **50 keywords per run** (not 25).
+  `SCOUT_KEYWORD_LIMIT` must be raised from 25 to 50 in `shared/schema.ts` (and
+  surfaced in the Scout form hint/counter — see Phase 6.1 C2). This is a quota guard.
+- [RESOLVED: keep name] Repo/product stays **"YouTube Pro"** — no rename.
+
+> Previous open-question text preserved below for context:
+> - Should completed/failed runs be visible anywhere in the UI
+>   (e.g. "last run: 8 found"), or is the results table
+>   ephemeral per-run with no history view?
+> - Is there a practical cap on how many keywords a single run
+>   should accept? → 50.
+> - Confirm whether the user wants the repo/product renamed → kept as-is.
 
 ## Architecture Decisions
 
@@ -313,6 +455,8 @@ where they still fit).
   compatible, `sk-nry-...` Bearer key) and not Gemini — this
   is documented for the future, not implemented now.
 
+- **Open questions resolved 2026-09-09:** (a) No history UI — results table is ephemeral per-run, DB retained only for dedup; (b) Keyword cap is **50** (`SCOUT_KEYWORD_LIMIT = 50`), surfaced as `{count}/50` in the Scout form; (c) Product keeps the name **YouTube Pro**.
+
 - **Phase 4 progress delivery: single synchronous response
   (a), not streaming/polling (b).** Rationale: request is for
   one blocking `POST /api/scout` that returns once the whole
@@ -355,3 +499,6 @@ where they still fit).
   scattered through the code.
 - 2026-09-08 — Phase 4: confirmed Insights/Ideas/Script/Thumbnail routes already removed (Phase 1). Added Scout contracts to shared/schema.ts (SCOUT_KEYWORD_LIMIT 25, scoutRequestSchema with min<=max superRefine, scoutChannelSchema, scoutStopReasonSchema target_reached/keywords_exhausted/quota_exhausted, scoutResponseSchema). Added POST /api/scout to server/routes.ts with dedicated scoutRateLimit (10/60s), Zod validation, deduped keywords, single synchronous runScoutDiscovery call, and response {channels, stopReason, found, requested, keywordsSearched} matching ScoutResponse semantics. Progress delivery is single synchronous response (Architecture Decisions) — no streaming/polling; client shows spinner until ScoutResponse arrives. Re-check if Phase 7 live-key pass shows long runs. server/ and shared/ remain tsc-clean; no live YouTube calls made.
 - 2026-09-08 — Phase 5: deleted client/src/pages/research.tsx and replaced with client/src/pages/scout.tsx (only real page besides Settings). Built Scout form (keywords textarea one-per-line/comma, SCOUT_KEYWORD_LIMIT 25 counter, min/max subscribers, maxDaysSinceUpload 1-3650, minAvgViews, optional minEngagementRate 0-100, targetCount 1-500) using shadcn/ui (Card/Input/Textarea/Label/Table/Badge/Alert/Button), validation mirroring scoutRequestSchema (min<=max etc.) with inline Alert. Wired single synchronous POST /api/scout (deduped keywords, spinner Running…, error Alert with category/suggestion, quota_exhausted treated as normal partial not error). Built results table (Channel linked to channel_url + ExternalLink, Subscriber Count, Avg Views, Engagement Rate % — if present, Last Upload Date, Days Since, Matched Keyword badge) with empty-state handling. Added run-status Card (stopReason badge + found/requested + keywordsSearched, quota_exhausted amber partial messaging, target_reached green, keywords_exhausted neutral). Step 5: removed routing/nav for deleted pages — deleted client/src/components/controller-guide.tsx, coming-soon.tsx, empty-state.tsx, search-filters.tsx, video-card.tsx, video-card-skeleton.tsx, video-detail-dialog.tsx and client/src/lib/research-export.ts, pdfGenerator.ts, youtube-analytics.ts; removed ControllerGuide from client/src/App.tsx header and Compass unused import from app-sidebar.tsx; routing now Scout-only (Switch: / -> ScoutPage, /settings -> SettingsPage, fallback NotFound — no /ideas redirect remains). Updated client/index.html title/description to Creator Scout and client/src/pages/not-found.tsx copy Return to Scout. Verified grep shows no remaining research/ideas/script/thumbnail/workflow-context/evidence imports. npm run check now passes with 0 errors (was 65 across 3 files). No live YouTube calls made.
+- 2026-09-09 — Phase 6 step 1 done: `server/settings.ts` now stores `YOUTUBE_API_KEYS` (comma-separated, rotation order = list order) with `YOUTUBE_API_KEY` single-key fallback. `SUPPORTED_KEYS` includes both vars, `ApiKeySettings` / `apiKeySettingsSchema` accept `youtubeApiKey?` (legacy) and `youtubeApiKeys?` (string up to 8192 or string[] up to 25, strict). Helpers `getYouTubeApiKeysFromEnv()`, `getApiKeyStatus() -> { youtube, youtubeKeyCount }`, `parseYouTubeKeysInput` (splits on `[,\\n]+`, trims), `validateYouTubeKeys` (8–512 chars, dedup preserving order with `Set`), `setEnvValue`, `saveApiKeySettings` (validates, dedupes, joins with `,`, atomic `writeFile(.env.tmp, 0o600)` + `rename` + `chmod 0o600`, syncs `process.env.YOUTUBE_API_KEYS` and `process.env.YOUTUBE_API_KEY` fallback). `.env.example` already updated (commented `YOUTUBE_API_KEYS=` + `# YOUTUBE_API_KEY=`). `server/youtube.ts` already consumed via `getYouTubeApiKeys()` with fallback — no change needed there. `client/src/pages/settings.tsx` NOT yet updated (see Phase 6.1 C1) — step 2 remains.
+- 2026-09-09 — Phase 6.1 full-codebase audit: read every load-bearing file (`server/*`, `shared/*`, `client/src/**/*`, `package.json`, `.env.example`, `vite.config.ts`, `tsconfig.json`, `script/build.ts`, `README.md`, `HANDOFF.md`) plus grep for `gemini|evidence|workflow-context` and glob checks. Findings written into this file as § Phase 6.1 (CRITICAL C1–C7, WARNING W1–W11, INFO I1–I10) — do those in order before Phase 7. Key outcomes: Open Questions resolved (no history UI, 50-keyword cap, keep "YouTube Pro" name) and folded into Architecture Decisions; `SCOUT_KEYWORD_LIMIT` must go 25→50 (C2); Settings page is contract-broken and must be rewritten (C1); legacy `GET /api/youtube/search` + `searchVideos` must be removed (C3–C4); `security-contracts.test.ts` + `research-contracts.test.ts` have dangling imports that break `npm test` despite `tsc` exclude (C5, C7); `youtube.test.ts` covers only deleted path (C6); plus W/I nits (18 MB JSON, `gemini` type, Replit leftovers, `no-store` on Scout, quoting, regex `\\s` typo, dead CSS).
+- 2026-09-09 — Phase 6.1 C1 fixed: rewrote `client/src/pages/settings.tsx` to match `server/settings.ts` multi-key contract. Now single `Textarea` (one per line or comma-separated → `youtubeApiKeys`), local count badge `Configured · N keys`, eye toggle via `WebkitTextSecurity: disc`, send only `{ youtubeApiKeys: raw }`. Removed every Gemini field / `ModelOption` / `Select` / `gemini*` state/ref. `ApiKeyStatus` now `{ youtube, youtubeKeyCount }` with defensive cast on status fetch. `npm run check` passes (exit 0).

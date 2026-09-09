@@ -157,7 +157,7 @@ export type SearchResponse = z.infer<typeof searchResponseSchema>;
 // Reuses validation patterns from the old Research request where applicable.
 // ---------------------------------------------------------------------------
 
-export const SCOUT_KEYWORD_LIMIT = 25;
+export const SCOUT_KEYWORD_LIMIT = 50;
 
 export const scoutRequestSchema = z.object({
   keywords: z.array(z.string().trim().min(1).max(200)).min(1).max(SCOUT_KEYWORD_LIMIT),
