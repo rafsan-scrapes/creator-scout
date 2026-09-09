@@ -9,11 +9,11 @@ so the next session doesn't have to rediscover it.
 
 ## Current Phase
 
-- Phase 5 — Rework the YouTube service
+- Phase 6
 
 ## Current Goal
 
-- Phase 5: complete last step
+- Phase 6 : second step
 
 ## Completed
 
@@ -22,10 +22,12 @@ so the next session doesn't have to rediscover it.
 - Phase 2 — Add the SQLite persistence layer (2026-09-08)
 - Phase 3 — Rework the YouTube service (2026-09-08) — steps 1-4 complete (see Session Notes)
 - Phase 4
+- Phase 5
 
 ## In Progress
 
-— Phase 5
+— Phase 6
+
 ## Next Up
 
 Work through these phases in order. Do not skip ahead — later

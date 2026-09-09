@@ -6,6 +6,7 @@ import { z } from "zod";
 const ENV_PATH = path.resolve(process.cwd(), ".env");
 const ENV_TEMP_PATH = path.resolve(process.cwd(), ".env.tmp");
 const SUPPORTED_KEYS = [
+  "YOUTUBE_API_KEYS",
   "YOUTUBE_API_KEY",
 ] as const;
 
@@ -13,10 +14,16 @@ type SupportedKey = (typeof SUPPORTED_KEYS)[number];
 
 export interface ApiKeySettings {
   youtubeApiKey?: string;
+  /** New multi-key input: raw textarea (one per line / comma-separated) or array of keys. */
+  youtubeApiKeys?: string | string[];
 }
 
 export const apiKeySettingsSchema = z.object({
   youtubeApiKey: z.string().trim().min(8).max(512).optional(),
+  youtubeApiKeys: z.union([
+    z.string().max(8192),
+    z.array(z.string().max(512)).max(25),
+  ]).optional(),
 }).strict();
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -97,9 +104,28 @@ export function isLocalSettingsRequest(req: Request): boolean {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Multi-key helpers — mirrors server/youtube.ts getYouTubeApiKeys() without
+// importing it (avoids circular / DB dependency). YOUTUBE_API_KEYS is
+// authoritative (comma-separated, order = rotation order); YOUTUBE_API_KEY
+// is kept as single-key fallback for backward compatibility.
+// ---------------------------------------------------------------------------
+
+export function getYouTubeApiKeysFromEnv(): string[] {
+  const multi = process.env.YOUTUBE_API_KEYS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (multi && multi.length > 0) return multi;
+  const single = process.env.YOUTUBE_API_KEY?.trim();
+  if (single) return [single];
+  return [];
+}
+
 export function getApiKeyStatus() {
+  const keys = getYouTubeApiKeysFromEnv();
   return {
-    youtube: Boolean(process.env.YOUTUBE_API_KEY?.trim()),
+    youtube: keys.length > 0,
+    youtubeKeyCount: keys.length,
   };
 }
 
@@ -120,6 +146,39 @@ function validateApiKey(value: unknown, label: string): string | undefined {
   return trimmed;
 }
 
+function parseYouTubeKeysInput(value: string | string[]): string[] {
+  const rawParts: string[] = [];
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry !== "string") {
+        throw new Error("YouTube API keys must be strings.");
+      }
+      // Each array entry may itself contain commas/newlines (paste variance)
+      rawParts.push(...entry.split(/[,\n]+/));
+    }
+  } else {
+    rawParts.push(...value.split(/[,\n]+/));
+  }
+  return rawParts.map((s) => s.trim()).filter(Boolean);
+}
+
+function validateYouTubeKeys(keys: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const raw = keys[i]!;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    if (trimmed.length < 8 || trimmed.length > 512) {
+      throw new Error(`YouTube API key ${i + 1} must be between 8 and 512 characters.`);
+    }
+    if (/\r|\n|\0/.test(trimmed)) {
+      throw new Error(`YouTube API key ${i + 1} contains unsupported characters.`);
+    }
+    out.push(trimmed);
+  }
+  return out;
+}
+
 function setEnvValue(contents: string, key: SupportedKey, value: string): string {
   const assignment = `${key}=${JSON.stringify(value)}`;
   const lines = contents.split(/\r?\n/);
@@ -136,11 +195,36 @@ function setEnvValue(contents: string, key: SupportedKey, value: string): string
 }
 
 export async function saveApiKeySettings(input: ApiKeySettings) {
-  const youtubeApiKey = validateApiKey(input.youtubeApiKey, "YouTube API key");
+  // Accept either the new multi-key field or the legacy single-key field.
+  // youtubeApiKeys takes precedence when both are supplied.
+  let keys: string[] | undefined;
 
-  if (!youtubeApiKey) {
-    throw new Error("Enter a replacement key to save.");
+  if (input.youtubeApiKeys !== undefined) {
+    const raw = input.youtubeApiKeys;
+    if (typeof raw !== "string" && !Array.isArray(raw)) {
+      throw new Error("YouTube API keys must be a string or array of strings.");
+    }
+    const parsed = parseYouTubeKeysInput(raw as string | string[]);
+    const validated = validateYouTubeKeys(parsed);
+    if (validated.length > 0) keys = validated;
   }
+
+  if (!keys && input.youtubeApiKey !== undefined) {
+    const single = validateApiKey(input.youtubeApiKey, "YouTube API key");
+    if (single) keys = [single];
+  }
+
+  if (!keys || keys.length === 0) {
+    throw new Error("Enter at least one replacement YouTube API key to save.");
+  }
+
+  if (keys.length > 25) {
+    throw new Error("Too many YouTube API keys (max 25).");
+  }
+
+  // Deduplicate preserving order (rotation order = list order)
+  const deduped = Array.from(new Set(keys));
+  const storedValue = deduped.join(",");
 
   let contents = "";
   try {
@@ -149,15 +233,21 @@ export async function saveApiKeySettings(input: ApiKeySettings) {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  if (youtubeApiKey) {
-    contents = setEnvValue(contents, "YOUTUBE_API_KEY", youtubeApiKey);
-  }
+  contents = setEnvValue(contents, "YOUTUBE_API_KEYS", storedValue);
 
   await writeFile(ENV_TEMP_PATH, contents, { encoding: "utf8", mode: 0o600 });
   await rename(ENV_TEMP_PATH, ENV_PATH);
   await chmod(ENV_PATH, 0o600);
 
-  if (youtubeApiKey) process.env.YOUTUBE_API_KEY = youtubeApiKey;
+  process.env.YOUTUBE_API_KEYS = storedValue;
+  // Keep process.env.YOUTUBE_API_KEY in sync for legacy readers that still
+  // check the single-key var directly (e.g. server/youtube.ts fallback).
+  // The persisted .env source of truth is YOUTUBE_API_KEYS; YOUTUBE_API_KEY
+  // in .env is left untouched to avoid surprising file churn for users who
+  // still have it.
+  if (!process.env.YOUTUBE_API_KEY?.trim()) {
+    process.env.YOUTUBE_API_KEY = deduped[0]!;
+  }
 
   return getApiKeyStatus();
 }
