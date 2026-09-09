@@ -9,11 +9,11 @@ so the next session doesn't have to rediscover it.
 
 ## Current Phase
 
-- Phase 6
+- Phase 7
 
 ## Current Goal
 
-- Phase 6.1 : C1–C7 done; remaining W/I before Phase 7
+- Phase 7 — Docs and verification (Phase 6 multi-key complete 2026-09-09)
 
 ## Completed
 
@@ -24,14 +24,13 @@ so the next session doesn't have to rediscover it.
 - Phase 4
 - Phase 5
 - Phase 6 step 1 — server/settings.ts multi-key store (YOUTUBE_API_KEYS comma-separated) — done (2026-09-09)
-- Phase 6.1 C1 — Settings page rewrite to multi-key contract — done (2026-09-09) (`npm run check` passes)
-- Phase 6.1 C2 — `SCOUT_KEYWORD_LIMIT` 25→50 + README caps updated — done (2026-09-09)
-- Phase 6.1 C3 — legacy `GET /api/youtube/search` removed from `server/routes.ts` — done (2026-09-09) (`npm run check` passes)
-- Phase 6.1 C4 — legacy `server/youtube.ts` `searchVideos`/`createSnapshotId` + `getPublishedAfter`/`getVideoDuration`/`getOrderBy` removed — done (2026-09-09) (`server/youtube.ts` 1096→746 lines, `npm run check` passes)
+- Phase 6 steps 2–3 — Settings page multi-key textarea (`youtubeApiKeys`, one per line / comma-separated) + `.env.example` `YOUTUBE_API_KEYS` — done (2026-09-09) (Phase 6.1 C1 re-audited: single `Textarea` → `youtubeApiKeys`, `Configured · N keys` badge, `WebkitTextSecurity` toggle, `npm run check` passes, zero Gemini fields)
+- Phase 6.1 — Full-Codebase Audit — Fix-List Before Phase 7 (added 2026-09-09) (completed 2026-09-09)
+- Phase 6 — Multi-key Settings — complete (2026-09-09)
 
 ## In Progress
 
-— Phase 6 (steps 2–3 + Phase 6.1 audit fix-list)
+— Phase 7 (docs + verification)
 
 ## Next Up
 
@@ -223,10 +222,14 @@ where they still fit).
    never-return-to-browser pattern the original Settings already uses. Helpers:
    `getYouTubeApiKeysFromEnv()`, `parseYouTubeKeysInput`, `validateYouTubeKeys`,
    `getApiKeyStatus() -> { youtube, youtubeKeyCount }`.
-2. Update the Settings page UI to let the user enter multiple
+2. [DONE 2026-09-09] Update the Settings page UI to let the user enter multiple
    keys (e.g. one per line / comma-separated textarea, maps to `youtubeApiKeys`),
    matching the existing form patterns already in `client/src/pages/settings.tsx`.
-   Must remove all Gemini fields (see Phase 6.1 C1).
+   Must remove all Gemini fields (see Phase 6.1 C1) — verified done via re-audit
+   2026-09-09: `client/src/pages/settings.tsx` already satisfies (single `Textarea`
+   one-per-line/comma-separated → `youtubeApiKeys` + `Configured · N keys` badge,
+   `WebkitTextSecurity: disc` toggle, sends only `{ youtubeApiKeys: raw }`, zero
+   Gemini/`ModelOption`/`Select` fields; `npm run check` passes; `grep gemini` 0 hits).
 3. Update `.env.example` accordingly. [DONE 2026-09-09 — already shows
    `YOUTUBE_API_KEYS` + commented `YOUTUBE_API_KEY` fallback.]
 
