@@ -2,6 +2,7 @@ import { ProviderError } from "./provider-errors";
 import { addUsage, getUsageToday, isChannelKnown, recordSearchChannel, setUsageToday } from "./db";
 
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
+export { BASE_URL as YOUTUBE_BASE_URL };
 const YOUTUBE_TIMEOUT_MS = 15_000;
 
 // ---------------------------------------------------------------------------
@@ -201,7 +202,7 @@ function isQuotaError(error: unknown): boolean {
  * key, and retries the same call once. If no keys remain, throws a
  * YOUTUBE_QUOTA_EXHAUSTED quota error for the caller to handle gracefully.
  */
-async function fetchYouTubeJsonWithQuota(
+export async function fetchYouTubeJsonWithQuota(
   baseUrl: string,
   params: URLSearchParams,
   stage: string,
