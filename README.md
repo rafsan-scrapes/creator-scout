@@ -1,6 +1,6 @@
 <p align="center">
   <img src="client/public/youtube-pro.svg" width="88" alt="YouTube Pro logo">
-</p>
+</h1>
 
 <h1 align="center">YouTube Pro — Creator Scout</h1>
 
@@ -21,6 +21,7 @@ YouTube Pro is an independent project. It is not affiliated with, endorsed by, o
 - **Persistent dedup:** Every evaluated channel — qualified or filtered out — is stored locally in SQLite (`data/scout.db`). The next run with the same keywords skips known channels entirely, saving quota and time.
 - **Quota-safe multi-key rotation:** Configure multiple YouTube Data API v3 keys. The server tracks estimated quota usage per key per day (quota resets at midnight Pacific) and proactively rotates to the next key with remaining quota. A `403 quotaExceeded` is also caught, the key is marked exhausted, and the same call is retried once on the next key. If all keys are exhausted mid-run, the run ends cleanly with partial results and a clear status — no crash, no blank page.
 - **Single-page results table:** Channel Name, Channel URL (linked), Subscriber Count, Avg Views (last up to 10 videos), Engagement Rate % (if computable), Last Upload Date, Days Since Last Upload, Matched Keyword — plus a status line stating how the run ended and how many channels were found vs. requested.
+- **History tab:** A dedicated tab showing the flat current exclusion list of channels (search-found and manually added), with the ability to manually add channels by pasting a channel link. Each entry is labeled as "Found via search" or "Manually added", and search-found entries show their matched keyword.
 - **No CSV export, no AI step.** AI is explicitly deferred. If added later it must go through the NaraRouter gateway (`https://router.bynara.id/v1`, OpenAI-Chat-Completions-compatible, `sk-nry-...` Bearer key) — not Gemini. No AI code ships in this rework.
 
 ## Workflow
@@ -38,6 +39,7 @@ YouTube Pro is an independent project. It is not affiliated with, endorsed by, o
 4. **Stop condition** — the first of: target count of qualified channels reached, all keywords exhausted, or all configured keys out of quota for today.
 5. **Review the table** — sortable/scrollable results with all computed fields and a status line (`target_reached` / `keywords_exhausted` / `quota_exhausted`) with found vs. requested counts.
 6. **Run again** — any channel already in the local database is silently skipped, regardless of keyword. It is never re-fetched or re-shown.
+7. **History tab** — view and manage the current flat exclusion list of channels. Add a channel by pasting a link (the app resolves it to YouTube's canonical channel ID). Already-excluded channels are silently skipped — no API quota spent.
 
 ## Requirements
 
@@ -67,7 +69,7 @@ You can instead start without keys and add them in **Settings**. Settings writes
 
 `YOUTUBE_API_KEYS` takes precedence when both are set. The Settings page exposes the keys as one-per-line (stored as comma-separated in `.env`) and never echoes saved values back to the client.
 
-The local SQLite file lives at `data/scout.db` (gitignored). It holds the `channels` table (every evaluated channel) and the `api_key_usage` table (per-key, per-day quota accounting in Pacific time). Deleting the file resets dedup history and usage counters — no migration step is required.
+The local SQLite file lives at `data/scout.db` (gitignored). It holds the `channels` table (every evaluated channel with identity fields only) and the `api_key_usage` table (per-key, per-day quota accounting in Pacific time). Deleting the file resets dedup history and usage counters — no migration step is required.
 
 ## How the discovery pipeline works
 
@@ -79,9 +81,9 @@ For each keyword, in order:
 4. Hidden-subscriber or out-of-range subscriber count → `recordChannel(..., qualified=false)` and stop for that channel.
 5. `playlistItems.list` (1 unit) on the uploads playlist → up to 10 most recent video IDs.
 6. Batch video IDs into `videos.list` (up to 50 IDs/call, 1 unit/call) → `viewCount`, `likeCount`, `commentCount`, `publishedAt`.
-7. Compute `avg_views`, `days_since_last_upload` (from most recent `publishedAt`), and `engagement_rate_pct` (mean `(likes+comments)/views` where `views > 0`).
+7. Compute `avg_views` (mean of viewCount across the videos retrieved, up to 10), `days_since_last_upload` (from the most recent video's `publishedAt`), and `engagement_rate_pct` (mean `(likeCount + commentCount) / viewCount * 100` across the same videos; leave null for any video where `viewCount` is 0 or missing).
 8. Apply max-days, min-avg-views, and optional min-engagement-rate filters → `recordChannel(..., qualified=true/false)`.
-9. After every YouTube call, `addUsage(keyLabel, units)` for proactive rotation.
+9. After every YouTube API call, `addUsage(keyLabel, units)` for proactive rotation.
 10. Any `403 quotaExceeded` → mark key exhausted for today, rotate, retry the same call once. No keys left → end run gracefully with accumulated qualified channels.
 
 This ordering is the main quota saving: `playlistItems.list` (1 unit) is used for recent videos instead of a second `search.list` (100 units), and every channel is recorded whether it qualified or not so it is never re-evaluated.
