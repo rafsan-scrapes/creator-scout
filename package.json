@@ -21,7 +21,7 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "test": "tsx --test server/*.test.ts shared/*.test.ts"
+    "test": "tsx --test --test-concurrency=1 server/*.test.ts shared/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -11,13 +11,18 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Search, Play, Settings } from "lucide-react";
+import { Search, Play, Settings, History } from "lucide-react";
 
 const menuItems = [
   {
     title: "Scout",
     url: "/",
     icon: Search,
+  },
+  {
+    title: "History",
+    url: "/history",
+    icon: History,
   },
 ];
 

@@ -178,6 +178,22 @@ describe("POST /api/history/manual-add", () => {
     assert.equal(body.status, "quota-exhausted");
     assert.equal(calls, 0);
   });
+
+  test("quota error mid-resolution (403 quotaExceeded) returns quota-exhausted", async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.includes("127.0.0.1") || url.includes("localhost")) {
+        return originalFetch(input, init);
+      }
+      return Response.json({
+        error: { errors: [{ reason: "quotaExceeded" }], message: "Quota exceeded" },
+      }, { status: 403 });
+    }) as typeof fetch;
+    const { status, body } = await postManualAdd({ input: "@somehandle" });
+
+    assert.equal(status, 429);
+    assert.equal(body.status, "quota-exhausted");
+  });
 });
 
 describe("GET /api/history", () => {

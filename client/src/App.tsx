@@ -9,12 +9,14 @@ import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/s
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
 import ScoutPage from "@/pages/scout";
+import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={ScoutPage} />
+      <Route path="/history" component={HistoryPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
